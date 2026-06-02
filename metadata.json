@@ -1,0 +1,7 @@
+{
+  "name": "Multiplication Table Game",
+  "description": "An educational Minecraft-styled math miner game for kids to learn and practice multiplication tables from 2 to 9, using a smart weak-point practice algorithm.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"],
+  "serviceName": "Craft_Math"
+}
