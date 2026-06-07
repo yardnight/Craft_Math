@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import OreBlock from './components/OreBlock';
 import { 
   Volume2, 
   VolumeX, 
@@ -51,6 +52,31 @@ interface ErrorItem {
   f1: number;
   f2: number;
 }
+
+interface PickaxeType {
+  id: string;
+  minLevel: number;
+  nameEn: string;
+  nameUk: string;
+  item: string;
+  text: string;
+  border: string;
+  bgColor: string;
+  colorH: string;
+  colorD: string;
+  colorL: string;
+  multiplier: number;
+}
+
+const PICKAXES: PickaxeType[] = [
+  { id: 'wooden', minLevel: 1, nameEn: 'Wooden Pickaxe', nameUk: "Дерев'яне кайло", item: '🪵 ⛏️', text: 'text-amber-400', border: 'border-amber-800', bgColor: 'bg-[#3e2723]', colorH: '#8d5a36', colorD: '#5b3e26', colorL: '#b07c5a', multiplier: 2 },
+  { id: 'stone', minLevel: 5, nameEn: 'Stone Pickaxe', nameUk: "Кам'яне кайло", item: '🪨 ⛏️', text: 'text-slate-300', border: 'border-slate-500', bgColor: 'bg-[#37474f]', colorH: '#7d7d7d', colorD: '#4a4a4a', colorL: '#b0b0b0', multiplier: 4 },
+  { id: 'copper', minLevel: 10, nameEn: 'Copper Pickaxe', nameUk: "Мідне кайло", item: '🧱 ⛏️', text: 'text-orange-400 font-bold', border: 'border-orange-600', bgColor: 'bg-[#5d4037]', colorH: '#d06848', colorD: '#9c4021', colorL: '#fca480', multiplier: 5 },
+  { id: 'iron', minLevel: 15, nameEn: 'Iron Pickaxe', nameUk: "Залізне кайло", item: '🪙 ⛏️', text: 'text-slate-100 font-black', border: 'border-slate-250', bgColor: 'bg-[#455a64]', colorH: '#cbd5d6', colorD: '#8e9a9c', colorL: '#ffffff', multiplier: 6 },
+  { id: 'diamond', minLevel: 20, nameEn: 'Diamond Pickaxe', nameUk: "Алмазне кайло", item: '💎 ⛏️', text: 'text-cyan-300 font-bold tracking-widest', border: 'border-cyan-400', bgColor: 'bg-[#006064]/40', colorH: '#2cf0eb', colorD: '#0ea7b5', colorL: '#bbfefc', multiplier: 8 },
+  { id: 'netherite', minLevel: 25, nameEn: 'Netherite Pickaxe', nameUk: "Незеритове кайло", item: '🖤 ⛏️', text: 'text-purple-400 font-black tracking-widest', border: 'border-purple-600', bgColor: 'bg-[#4a148c]/30', colorH: '#4a3b47', colorD: '#2b2029', colorL: '#796775', multiplier: 9 },
+  { id: 'gold', minLevel: 30, nameEn: 'Golden Pickaxe', nameUk: "Золоте кайло", item: '⭐ ⛏️', text: 'text-yellow-300 font-bold', border: 'border-yellow-400', bgColor: 'bg-[#fbc02d]/20', colorH: '#facd34', colorD: '#c29415', colorL: '#fff6a1', multiplier: 12 },
+];
 
 // Inline styles for 8-bit aesthetic and keyframe animations
 const customStyles = `
@@ -368,7 +394,12 @@ const t = {
     netherPortalTitle: "Nether Portal Opened!",
     netherPortalDesc: "You have unlocked the Netherite Pickaxe! A mysterious purple portal has opened, crackling with hot obsidian air. Are you ready to enter the Nether World?",
     enterNetherBtn: "Enter Nether World 😈",
-    netherWorldActive: "Nether World"
+    netherWorldActive: "Nether World",
+    choosePickaxe: "Pickaxe Selector",
+    pickaxeUnlockedAt: "Unlocked at Level",
+    pickaxeLocked: "LOCKED 🔒",
+    pickaxeEquipped: "EQUIPPED ✔️",
+    autoSelect: "Use Best Pickaxe (Auto)"
   },
   uk: {
     levelUnlocked: "Нове спорядження розблоковано!",
@@ -424,8 +455,85 @@ const t = {
     netherPortalTitle: "Портал в Незер відкрито!",
     netherPortalDesc: "Ви розблокували Незеритове кайло! З'явився таємничий фіолетовий портал, від якого віє гарячим обсидіановим повітрям. Чи готові ви увійти в Незер ворлд?",
     enterNetherBtn: "Увійти в Незер ворлд 😈",
-    netherWorldActive: "Незер Ворлд"
+    netherWorldActive: "Незер Ворлд",
+    choosePickaxe: "Вибір кайла",
+    pickaxeUnlockedAt: "Розблокується на рівні",
+    pickaxeLocked: "ЗАБЛОКОВАНО 🔒",
+    pickaxeEquipped: "ЕКІПІРОВАНО ✔️",
+    autoSelect: "Найкраще кайло (Авто)"
   }
+};
+
+const PixelPickaxe = ({ 
+  colorH, 
+  colorD, 
+  colorL, 
+  size = 32,
+  className = ""
+}: { 
+  colorH: string; 
+  colorD: string; 
+  colorL: string; 
+  size?: number;
+  className?: string;
+}) => {
+  const grid = [
+    "................",
+    "......kkkkkkk...",
+    "....kkhlllllhkk.",
+    "...kklhhhhhhhhdk",
+    "...kdk....klhdk.",
+    ".........kwlhdk.",
+    "........kwslhdk.",
+    ".......kwsklhdk.",
+    "......kwsk.lhdk.",
+    ".....kwsk..lhdk.",
+    "....kwsk...kdk..",
+    "...kwsk....k....",
+    "..kwsk..........",
+    ".kwsk...........",
+    ".kkk............",
+    "................"
+  ];
+
+  const rects: React.JSX.Element[] = [];
+  grid.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const char = row[x];
+      if (char === '.') continue;
+      
+      let fill = '';
+      if (char === 'k') fill = '#14110f';
+      else if (char === 'w') fill = '#986944';
+      else if (char === 's') fill = '#5b3e26';
+      else if (char === 'h') fill = colorH;
+      else if (char === 'd') fill = colorD;
+      else if (char === 'l') fill = colorL;
+      
+      rects.push(
+        <rect 
+          key={`${x}-${y}`} 
+          x={x} 
+          y={y} 
+          width={1} 
+          height={1} 
+          fill={fill} 
+        />
+      );
+    }
+  });
+
+  return (
+    <svg 
+      viewBox="0 0 16 16" 
+      width={size} 
+      height={size} 
+      className={`pixelated-render shrink-0 ${className}`}
+      style={{ imageRendering: 'pixelated' }}
+    >
+      {rects}
+    </svg>
+  );
 };
 
 const getFactorsForLevel = (lvl: number): { f1: number; f2: number } => {
@@ -580,12 +688,26 @@ export default function App() {
     localStorage.setItem('math_miner_volume', volume.toString());
   }, [volume]);
 
+  const [selectedPickaxeId, setSelectedPickaxeId] = useState<string | null>(() => {
+    return localStorage.getItem('math_miner_selected_pickaxe') || null;
+  });
+
+  const [showPickaxeSelector, setShowPickaxeSelector] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (selectedPickaxeId) {
+      localStorage.setItem('math_miner_selected_pickaxe', selectedPickaxeId);
+    } else {
+      localStorage.removeItem('math_miner_selected_pickaxe');
+    }
+  }, [selectedPickaxeId]);
+
   useEffect(() => {
     localStorage.setItem('math_miner_error_queue', JSON.stringify(errorQueue));
   }, [errorQueue]);
 
   // Audio Synthesizer Engine (Self-contained, Web Audio API based, 0% 404 chance)
-  const playSoundEffect = useCallback((type: 'mine' | 'correct' | 'error' | 'levelUp' | 'portal') => {
+  const playSoundEffect = useCallback((type: 'mine' | 'correct' | 'error' | 'levelUp' | 'portal' | 'click') => {
     if (!soundEnabled) return;
 
     try {
@@ -692,6 +814,20 @@ export default function App() {
           osc.start(now + idx * 0.15);
           osc.stop(now + idx * 0.15 + 0.6);
         });
+      } else if (type === 'click') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(120, now + 0.05);
+
+        gain.gain.setValueAtTime(0.08 * volMultiplier, now);
+        gain.gain.exponentialRampToValueAtTime(0.01 * volMultiplier, now + 0.05);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(now + 0.05);
       }
     } catch (e) {
       // Audio context block safeguard from browser policies
@@ -701,12 +837,13 @@ export default function App() {
   // Game logic configurations mapping current table factor sets to difficulty ores
   const getOreConfig = useCallback((f1: number, f2: number) => {
     const maxVal = Math.max(f1, f2);
-    if (maxVal <= 3) {
+    if (maxVal <= 2) {
       return {
         name: lang === 'uk' ? 'Вугільна руда' : 'Coal Ore',
         emoji: '⚫',
         sparkleEmoji: '⚫',
         themeColor: '#383838', // Dark charcoal/coal gray
+        oreType: 'coal',
         sparkleColor: '#171717',
         borderColor: '#000000',
         textColor: 'text-zinc-300',
@@ -714,12 +851,27 @@ export default function App() {
         xpBonus: 10,
         gradeColor: 'bg-[#555555]'
       };
-    } else if (maxVal <= 5) {
+    } else if (maxVal === 3) {
+      return {
+        name: lang === 'uk' ? 'Мідна руда' : 'Copper Ore',
+        emoji: '🧡',
+        sparkleEmoji: '💚',
+        themeColor: '#e27244', // Copper orange base (will be dual-shaded with green in OreBlock)
+        oreType: 'copper',
+        sparkleColor: '#26a69a', // Turquoise green sparkle
+        borderColor: '#000000',
+        textColor: 'text-amber-200',
+        particle: '🧡',
+        xpBonus: 11,
+        gradeColor: 'bg-[#d9744b]'
+      };
+    } else if (maxVal === 4) {
       return {
         name: lang === 'uk' ? 'Залізна руда' : 'Iron Ore',
         emoji: '🪙',
         sparkleEmoji: '🟫',
         themeColor: '#ca9e82', // Sandy raw ore
+        oreType: 'iron',
         sparkleColor: '#a17255',
         borderColor: '#000000',
         textColor: 'text-orange-100',
@@ -727,12 +879,41 @@ export default function App() {
         xpBonus: 12,
         gradeColor: 'bg-[#7a7a7a]'
       };
-    } else if (maxVal <= 7) {
+    } else if (maxVal === 5) {
+      return {
+        name: lang === 'uk' ? 'Лазуритова руда' : 'Lapis Lazuli Ore',
+        emoji: '💙',
+        sparkleEmoji: '🔵',
+        themeColor: '#1155cc', // Deep royal blue
+        oreType: 'lapis',
+        sparkleColor: '#2050e0',
+        borderColor: '#000000',
+        textColor: 'text-blue-100',
+        particle: '🔵',
+        xpBonus: 13,
+        gradeColor: 'bg-[#15348a]'
+      };
+    } else if (maxVal === 6) {
+      return {
+        name: lang === 'uk' ? 'Редстоунова руда' : 'Redstone Ore',
+        emoji: '🔴',
+        sparkleEmoji: '✨',
+        themeColor: '#ff2222', // Luminous brick red
+        oreType: 'redstone',
+        sparkleColor: '#e53935',
+        borderColor: '#000000',
+        textColor: 'text-red-100',
+        particle: '🔴',
+        xpBonus: 14,
+        gradeColor: 'bg-[#b71c1c] shadow-[0_0_12px_rgba(255,34,34,0.4)]'
+      };
+    } else if (maxVal === 7) {
       return {
         name: lang === 'uk' ? 'Золота руда' : 'Gold Ore',
         emoji: '⭐',
         sparkleEmoji: '🟡',
         themeColor: '#f3c623', // Radiant gold ore
+        oreType: 'gold',
         sparkleColor: '#ffff55',
         borderColor: '#000000',
         textColor: 'text-yellow-105',
@@ -740,12 +921,27 @@ export default function App() {
         xpBonus: 15,
         gradeColor: 'bg-[#cf9222]'
       };
-    } else {
+    } else if (maxVal === 8) {
+      return {
+        name: lang === 'uk' ? 'Смарагдова руда' : 'Emerald Ore',
+        emoji: '💚',
+        sparkleEmoji: '✨',
+        themeColor: '#00e676', // Bright emerald green
+        oreType: 'emerald',
+        sparkleColor: '#00c853',
+        borderColor: '#000000',
+        textColor: 'text-emerald-100',
+        particle: '💚',
+        xpBonus: 18,
+        gradeColor: 'bg-[#007b3a] shadow-[0_0_12px_rgba(0,230,118,0.4)]'
+      };
+    } else if (maxVal === 9) {
       return {
         name: lang === 'uk' ? 'Алмазна руда' : 'Diamond Ore',
         emoji: '💎',
         sparkleEmoji: '✨',
         themeColor: '#3fc1c9', // Pristine Diamond cyan
+        oreType: 'diamond',
         sparkleColor: '#55ffff',
         borderColor: '#000000',
         textColor: 'text-cyan-105',
@@ -753,66 +949,74 @@ export default function App() {
         xpBonus: 20,
         gradeColor: 'bg-[#55aaaa] shadow-[0_0_16px_rgba(85,255,255,0.5)]'
       };
+    } else {
+      return {
+        name: lang === 'uk' ? 'Кварцова руда' : 'Nether Quartz Ore',
+        emoji: '⬜',
+        sparkleEmoji: '✨',
+        themeColor: '#eceff1', // White/Cream crystalline quartz
+        oreType: 'quartz',
+        sparkleColor: '#ffffff',
+        borderColor: '#000000',
+        textColor: 'text-slate-100',
+        particle: '⬜',
+        xpBonus: 22,
+        gradeColor: 'bg-[#b0bec5]'
+      };
     }
   }, [lang]);
 
+  // Utility to determine the math/difficulty level based on the selected pickaxe
+  const getEffectiveMathLevel = useCallback(() => {
+    if (selectedPickaxeId) {
+      const p = PICKAXES.find(x => x.id === selectedPickaxeId);
+      if (p && currentLevel >= p.minLevel) {
+        return p.minLevel;
+      }
+    }
+    return currentLevel;
+  }, [selectedPickaxeId, currentLevel]);
+
   // Characterization mappings of tools matching player level progression metrics
-  const getActiveTool = useCallback((lvl: number) => {
-    if (lvl < 5) {
-      return { 
-        name: lang === 'uk' ? "Дерев'яне кайло" : 'Wooden Pickaxe', 
-        item: '🪵 ⛏️', 
-        border: 'border-amber-800', 
-        text: 'text-amber-400' 
-      };
+  const getActiveTool = useCallback((lvl: number, useOverride: boolean = false) => {
+    let toolId = 'wooden';
+    if (useOverride && selectedPickaxeId) {
+      const selected = PICKAXES.find(p => p.id === selectedPickaxeId);
+      if (selected && lvl >= selected.minLevel) {
+        toolId = selectedPickaxeId;
+      } else {
+        // Fallback to highest unlocked
+        if (lvl < 5) toolId = 'wooden';
+        else if (lvl < 10) toolId = 'stone';
+        else if (lvl < 15) toolId = 'copper';
+        else if (lvl < 20) toolId = 'iron';
+        else if (lvl < 25) toolId = 'diamond';
+        else if (lvl < 30) toolId = 'netherite';
+        else toolId = 'gold';
+      }
+    } else {
+      if (lvl < 5) toolId = 'wooden';
+      else if (lvl < 10) toolId = 'stone';
+      else if (lvl < 15) toolId = 'copper';
+      else if (lvl < 20) toolId = 'iron';
+      else if (lvl < 25) toolId = 'diamond';
+      else if (lvl < 30) toolId = 'netherite';
+      else toolId = 'gold';
     }
-    if (lvl < 10) {
-      return { 
-        name: lang === 'uk' ? "Кам'яне кайло" : 'Stone Pickaxe', 
-        item: '🪨 ⛏️', 
-        border: 'border-slate-500', 
-        text: 'text-slate-300' 
-      };
-    }
-    if (lvl < 15) {
-      return { 
-        name: lang === 'uk' ? "Мідне кайло" : 'Copper Pickaxe', 
-        item: '🧱 ⛏️', 
-        border: 'border-orange-600', 
-        text: 'text-orange-400 font-bold' 
-      };
-    }
-    if (lvl < 20) {
-      return { 
-        name: lang === 'uk' ? "Залізне кайло" : 'Iron Pickaxe', 
-        item: '🪙 ⛏️', 
-        border: 'border-slate-250', 
-        text: 'text-slate-100 font-black' 
-      };
-    }
-    if (lvl < 25) {
-      return { 
-        name: lang === 'uk' ? "Золоте кайло" : 'Golden Pickaxe', 
-        item: '⭐ ⛏️', 
-        border: 'border-yellow-400', 
-        text: 'text-yellow-300 animate-pulse font-bold' 
-      };
-    }
-    if (lvl < 30) {
-      return { 
-        name: lang === 'uk' ? "Алмазне кайло" : 'Diamond Pickaxe', 
-        item: '💎 ⛏️', 
-        border: 'border-cyan-400', 
-        text: 'text-cyan-300 font-bold tracking-widest animate-pulse' 
-      };
-    }
-    return { 
-      name: lang === 'uk' ? "Незеритове кайло" : 'Netherite Pickaxe', 
-      item: '🖤 ⛏️', 
-      border: 'border-purple-600', 
-      text: 'text-purple-400 font-black tracking-widest animate-pulse' 
+
+    const p = PICKAXES.find(x => x.id === toolId) || PICKAXES[0];
+    return {
+      id: p.id,
+      name: lang === 'uk' ? p.nameUk : p.nameEn,
+      item: p.item,
+      border: p.border,
+      text: p.text,
+      colorH: p.colorH,
+      colorD: p.colorD,
+      colorL: p.colorL,
+      multiplier: p.multiplier
     };
-  }, [lang]);
+  }, [lang, selectedPickaxeId]);
 
   // Generate math options based on standard grid parameters
   const generateQuestion = useCallback((customF1?: number, customF2?: number): Question => {
@@ -820,26 +1024,28 @@ export default function App() {
     let f2 = customF2;
 
     if (f1 === undefined || f2 === undefined) {
-      // Setup pools based on user progression level
+      // Setup pools based on user selected/active tool level rather than just max unlocked level
       let f1Pool: number[] = [];
       let f2Pool: number[] = [];
 
-      if (currentLevel < 5) {
+      const mathLevel = getEffectiveMathLevel();
+
+      if (mathLevel < 5) {
         f1Pool = [2, 3];
         f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (currentLevel < 10) {
+      } else if (mathLevel < 10) {
         f1Pool = [3, 4];
         f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (currentLevel < 15) {
+      } else if (mathLevel < 15) {
         f1Pool = [4, 5];
         f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (currentLevel < 20) {
+      } else if (mathLevel < 20) {
         f1Pool = [5, 6];
         f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (currentLevel < 25) {
+      } else if (mathLevel < 25) {
         f1Pool = [6, 7];
         f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (currentLevel < 30) {
+      } else if (mathLevel < 30) {
         f1Pool = [8, 9];
         f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
       } else {
@@ -950,7 +1156,7 @@ export default function App() {
       options,
       answer,
     };
-  }, [currentLevel, historyCounts, currentQuestion]);
+  }, [getEffectiveMathLevel, historyCounts, currentQuestion]);
 
   // Central driver triggering state transitions of mathematical problems
   const generateNextQuestion = useCallback(() => {
@@ -978,11 +1184,11 @@ export default function App() {
     }, 700);
   }, [errorQueue, generateQuestion]);
 
-  // Fire first load question
+  // Fire first load and subsequent pickaxe selection change questions
   useEffect(() => {
     generateNextQuestion();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedPickaxeId]);
 
   // Particles rendering loop
   const spawnMineParticles = useCallback((origX: number, origY: number, emoji: string) => {
@@ -1211,34 +1417,6 @@ export default function App() {
     ? getOreConfig(currentQuestion.factor1Num, currentQuestion.factor2Num)
     : null;
 
-  // Render ore spark items inside the main mining hub
-  const renderOreSparkles = () => {
-    if (!currentOre) return null;
-    const glints = [
-      { top: '11%', left: '11%' },
-      { top: '34%', right: '17%' },
-      { bottom: '14%', left: '20%' },
-      { top: '59%', left: '9%' },
-      { bottom: '16%', right: '28%' }
-    ];
-
-    return glints.map((d, i) => (
-      <div
-        key={i}
-        className="ore-glint animate-pulse select-none absolute w-6 h-6 border-4 border-black"
-        style={{
-          top: d.top,
-          left: d.left,
-          right: (d as any).right,
-          bottom: (d as any).bottom,
-          backgroundColor: currentOre.sparkleColor,
-          opacity: answeredCorrectly ? 0.1 : 0.9,
-          transition: 'all 0.5s ease',
-        }}
-      />
-    ));
-  };
-
   return (
     <div className={`min-h-screen ${netherEntered ? 'bg-nether-grid text-red-50' : 'bg-pixel-grid bg-[#1e1e1e] text-white'} flex flex-col font-mono selection:bg-green-500 selection:text-black`}>
       <style>{customStyles}</style>
@@ -1308,11 +1486,20 @@ export default function App() {
               LEVEL {showLevelUpBanner}
             </p>
 
-            <div className="w-full bg-zinc-900 border-4 border-zinc-700 p-4 mb-6">
-              <span className="font-pixel text-xs text-stone-400 uppercase tracking-wide block mb-2">{t[lang].unlockedNewGear}</span>
-              <span className="font-pixel text-sm text-cyan-300 block font-bold">
-                {getActiveTool(showLevelUpBanner).name} {getActiveTool(showLevelUpBanner).item}
-              </span>
+            <div className="w-full bg-zinc-900 border-4 border-zinc-700 p-4 mb-6 flex flex-col items-center justify-center gap-2">
+              <span className="font-pixel text-xs text-stone-400 uppercase tracking-wide block mb-1">{t[lang].unlockedNewGear}</span>
+              <div className="flex items-center gap-2 justify-center">
+                <PixelPickaxe 
+                  colorH={getActiveTool(showLevelUpBanner).colorH}
+                  colorD={getActiveTool(showLevelUpBanner).colorD}
+                  colorL={getActiveTool(showLevelUpBanner).colorL}
+                  size={24}
+                  className="animate-bounce"
+                />
+                <span className={`font-pixel text-xs ${getActiveTool(showLevelUpBanner).text} block font-bold`}>
+                  {getActiveTool(showLevelUpBanner).name}
+                </span>
+              </div>
             </div>
 
             <button
@@ -1455,9 +1642,25 @@ export default function App() {
       </header>
 
       {/* Secondary Subtitle banner showcasing current tool */}
-      <section className="bg-zinc-950 border-b-2 sm:border-b-4 border-zinc-900 py-1 sm:py-2 px-2 text-center">
+      <section className="bg-zinc-950 border-b-2 sm:border-b-4 border-zinc-900 py-1 sm:py-2 px-2 text-center select-none">
         <span className="font-pixel text-[7px] sm:text-xs text-stone-400 uppercase tracking-wider block max-w-7xl mx-auto">
-          {t[lang].currentlyMiningWith} <strong className={`font-black ${getActiveTool(currentLevel).text}`}>{getActiveTool(currentLevel).name} {getActiveTool(currentLevel).item}</strong>
+          {t[lang].currentlyMiningWith}{' '}
+          <strong 
+            onClick={() => {
+              playSoundEffect('click');
+              setShowPickaxeSelector(true);
+            }}
+            className={`font-black ${getActiveTool(currentLevel, true).text} underline decoration-dashed cursor-pointer hover:brightness-125 hover:scale-105 inline-flex items-center gap-1.5 transition-transform duration-75 active:scale-95 px-2 py-1 rounded bg-zinc-900/40 hover:bg-zinc-900/80 border border-zinc-800/80 hover:border-zinc-700`}
+            title={lang === 'uk' ? 'Натисніть, щоб змінити кайло!' : 'Click to change pickaxe!'}
+          >
+            <PixelPickaxe 
+              colorH={getActiveTool(currentLevel, true).colorH}
+              colorD={getActiveTool(currentLevel, true).colorD}
+              colorL={getActiveTool(currentLevel, true).colorL}
+              size={12}
+            />
+            <span>{getActiveTool(currentLevel, true).name}</span>
+          </strong>
         </span>
       </section>
 
@@ -1477,50 +1680,48 @@ export default function App() {
                 )}
 
                  {/* The main epic Ore block container */}
-                <div
-                  className={`relative w-40 h-40 xs:w-48 xs:h-48 sm:w-60 sm:h-60 md:w-72 md:h-72 rounded-none cursor-pointer select-none flex flex-col items-center justify-center transition-all duration-150 ore-block pixel-border
-                    ${isNewQuestionEntry ? 'animate-drop' : ''} 
-                    ${shakeBlock ? 'animate-shake border-red-500 bg-red-900/30' : ''} 
-                    ${answeredCorrectly ? 'animate-crack' : ''}
-                    ${currentOre ? currentOre.gradeColor : ''}
-                  `}
-                  onClick={(e) => {
-                    // Clicking the block lets you see particles / makes satisfying click sound!
-                    if (answeredCorrectly) return;
-                    playSoundEffect('mine');
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    spawnMineParticles(e.clientX, e.clientY, currentOre ? currentOre.particle : '⚡');
-                  }}
-                  title={t[lang].crackMineralTitle}
-                >
-                  
-                  {/* Visual Mine ore sparkles decoration dots */}
-                  {renderOreSparkles()}
+                 <div
+                   className={`relative w-52 h-52 xs:w-64 xs:h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 cursor-pointer select-none flex flex-col items-center justify-center transition-all duration-150
+                     ${isNewQuestionEntry ? 'animate-drop' : ''} 
+                     ${shakeBlock ? 'animate-shake' : ''} 
+                     ${answeredCorrectly ? 'animate-crack' : ''}
+                   `}
+                   onClick={(e) => {
+                     // Clicking the block lets you see particles / makes satisfying click sound!
+                     if (answeredCorrectly) return;
+                     playSoundEffect('mine');
+                     spawnMineParticles(e.clientX, e.clientY, currentOre ? currentOre.particle : '⚡');
+                   }}
+                   title={t[lang].crackMineralTitle}
+                 >
+                   
+                   {/* Isometric 3D Canvas Ore Block */}
+                   <OreBlock 
+                     oreColor={currentOre ? currentOre.themeColor : '#3fc1c9'}
+                     isNether={netherEntered}
+                     oreType={currentOre ? currentOre.oreType : "diamond"}
+                      answeredCorrectly={answeredCorrectly}
+                   />
 
-                  {/* 3D block shadows inside */}
-                  <div className="absolute inset-1 xs:inset-2 border-2 sm:border-4 border-dashed border-black/10 pointer-events-none" />
 
-                  {/* Cracked Overlay when Correct */}
-                  {answeredCorrectly && (
-                    <div className="absolute inset-0 pixel-cracks pointer-events-none opacity-90 z-10 transition-opacity" />
-                  )}
 
-                  {/* Mathematical Factor text (repositioned higher and enlarged as requested) */}
-                  {currentOre && (
-                    <span className="absolute top-2 xs:top-4 font-pixel text-[8px] xs:text-[10px] sm:text-xs md:text-sm text-stone-100 tracking-wide uppercase text-shadow-streak select-none z-10 font-bold text-center px-1">
-                      {currentOre.name}
-                    </span>
-                  )}
 
-                  <div className="z-10 text-center select-none pointer-events-none">
-                    <p className="font-pixel text-xl xs:text-2xl sm:text-4xl md:text-5xl text-white font-black tracking-normal text-shadow-problem">
-                      {currentQuestion.factor1Num} × {currentQuestion.factor2Num}
-                    </p>
-                  </div>
-                </div>
+                   {/* Mathematical Factor text (repositioned higher and enlarged as requested) */}
+                   {currentOre && (
+                     <span className="absolute -top-8 xs:-top-11 sm:-top-14 md:-top-16 font-pixel text-[8px] xs:text-[10px] sm:text-xs md:text-sm text-stone-100 tracking-wide uppercase text-shadow-streak select-none z-10 font-bold text-center px-1">
+                       {currentOre.name}
+                     </span>
+                   )}
+
+                   <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-center select-none pointer-events-none">
+                     <p className="font-pixel text-xl xs:text-2xl sm:text-4xl md:text-5xl text-white font-black tracking-normal text-shadow-problem">
+                       {currentQuestion.factor1Num} × {currentQuestion.factor2Num}
+                     </p>
+                   </div>
+                 </div>
 
                 {/* Answer chest selectors array */}
-                <div className="w-full mt-3 xs:mt-5 sm:mt-8">
+                <div className="w-full mt-8 xs:mt-12 sm:mt-16 md:mt-24">
                   <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6">
                     {currentQuestion.options.map((option, idx) => {
                       const isFailed = failedOptions.includes(idx);
@@ -1567,7 +1768,7 @@ export default function App() {
                 </div>
 
                 {/* Safe failover / skip current block */}
-                <div className="mt-2.5 xs:mt-4 flex justify-center gap-4">
+                <div className="mt-6 xs:mt-10 sm:mt-14 flex justify-center gap-4">
                   <button
                     onClick={skipCurrentBlock}
                     className="font-pixel text-[7px] xs:text-[9px] text-stone-400 hover:text-stone-200 transition-colors bg-zinc-900 hover:bg-zinc-850 px-3 py-1.5 xs:px-4 xs:py-2 border-2 border-zinc-950 uppercase cursor-pointer"
@@ -1940,6 +2141,142 @@ export default function App() {
                 {t[lang].cancelConfirmButton}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pickaxe Selection Modal Pop-Up Window */}
+      {showPickaxeSelector && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="relative w-full max-w-sm p-6 pixel-stone pixel-border border-b-8 border-r-8 text-center flex flex-col animate-drop">
+            
+            <div className="text-4xl mb-2 select-none animate-bounce">⛏️</div>
+            
+            <h2 className="font-pixel text-yellow-400 text-xs sm:text-sm uppercase tracking-wider mb-4 drop-shadow-[0_2px_0_rgba(0,0,0,1)]">
+              {t[lang].choosePickaxe}
+            </h2>
+
+            {/* Pickaxes scrollable container */}
+            <div className="w-full max-h-[280px] overflow-y-auto space-y-2 pr-1 text-left mb-5 bg-zinc-950/40 p-2 border-2 border-stone-800">
+              
+              {/* Option 0: Auto Select */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPickaxeId(null);
+                  playSoundEffect('click');
+                }}
+                className={`w-full text-left p-2 border-4 transition-all duration-75 block cursor-pointer select-none
+                  ${selectedPickaxeId === null 
+                    ? 'bg-[#424242] text-yellow-350 border-[#55ff55]' 
+                    : 'bg-[#212121] text-stone-300 hover:text-white border-black hover:bg-neutral-800'
+                  }
+                `}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-pixel text-[8px] sm:text-[9px] uppercase flex items-center gap-2">
+                    🔄 {t[lang].autoSelect}
+                  </span>
+                  {selectedPickaxeId === null && (
+                    <span className="font-pixel text-[8px] text-green-400 uppercase">
+                      ✔️
+                    </span>
+                  )}
+                </div>
+              </button>
+
+              {/* List of Pickaxes */}
+              {PICKAXES.map((pickaxe) => {
+                const isUnlocked = currentLevel >= pickaxe.minLevel;
+                const isSelected = selectedPickaxeId === pickaxe.id;
+                
+                // Determine if this tool is active under auto setting
+                const isAutoActive = selectedPickaxeId === null && (
+                  (pickaxe.id === 'wooden' && currentLevel < 5) ||
+                  (pickaxe.id === 'stone' && currentLevel >= 5 && currentLevel < 10) ||
+                  (pickaxe.id === 'copper' && currentLevel >= 10 && currentLevel < 15) ||
+                  (pickaxe.id === 'iron' && currentLevel >= 15 && currentLevel < 20) ||
+                  (pickaxe.id === 'gold' && currentLevel >= 20 && currentLevel < 25) ||
+                  (pickaxe.id === 'diamond' && currentLevel >= 25 && currentLevel < 30) ||
+                  (pickaxe.id === 'netherite' && currentLevel >= 30)
+                );
+                
+                const isEquippedActive = isSelected || isAutoActive;
+
+                return (
+                  <button
+                    key={pickaxe.id}
+                    disabled={!isUnlocked}
+                    type="button"
+                    onClick={() => {
+                      if (isUnlocked) {
+                        setSelectedPickaxeId(pickaxe.id);
+                        playSoundEffect('click');
+                      }
+                    }}
+                    className={`w-full text-left p-2 border-4 transition-all duration-75 block select-none
+                      ${!isUnlocked 
+                        ? 'bg-zinc-950/60 border-zinc-900 opacity-50 cursor-not-allowed text-stone-600' 
+                        : isEquippedActive
+                          ? 'bg-[#37474f] text-yellow-300 border-[#55ff55] cursor-pointer'
+                          : 'bg-[#212121] text-stone-300 hover:text-white border-black hover:bg-neutral-800 cursor-pointer'
+                      }
+                    `}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <PixelPickaxe 
+                          colorH={pickaxe.colorH}
+                          colorD={pickaxe.colorD}
+                          colorL={pickaxe.colorL}
+                          size={20}
+                          className={!isUnlocked ? "opacity-30 grayscale" : ""}
+                        />
+                        <span className={`font-pixel text-[8px] sm:text-[9px] font-black ${isUnlocked ? 'text-[#55ff55]' : 'text-stone-600'} w-7 shrink-0 text-center`}>
+                          x{pickaxe.multiplier}
+                        </span>
+                        <div className="flex flex-col">
+                          <span className={`font-pixel text-[8px] sm:text-[9px] uppercase ${isUnlocked ? pickaxe.text : 'text-stone-500'}`}>
+                            {lang === 'uk' ? pickaxe.nameUk : pickaxe.nameEn}
+                          </span>
+                          {!isUnlocked && (
+                            <span className="font-pixel text-[6px] text-red-400 uppercase mt-0.5">
+                              {t[lang].pickaxeUnlockedAt} {pickaxe.minLevel}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        {isEquippedActive ? (
+                          <span className="font-pixel text-[7px] sm:text-[8px] text-[#55ff55] uppercase animate-pulse">
+                            {lang === 'uk' ? 'Екіп' : 'Equip'} ✔️
+                          </span>
+                        ) : isUnlocked ? (
+                          <span className="font-pixel text-[7px] sm:text-[8px] text-stone-500 uppercase">
+                            {lang === 'uk' ? 'Вдягти' : 'Equip'}
+                          </span>
+                        ) : (
+                          <span className="font-pixel text-[6px] sm:text-[7px] text-red-500 uppercase">
+                            🔒 {t[lang].pickaxeLocked.replace(' 🔒', '')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Done Close Button */}
+            <button
+              onClick={() => {
+                playSoundEffect('click');
+                setShowPickaxeSelector(false);
+              }}
+              className="font-pixel text-xs bg-[#555] hover:bg-neutral-600 text-white py-3 px-6 border-b-4 border-black uppercase font-black cursor-pointer w-full transition-all duration-75 active:scale-95"
+            >
+              {lang === 'uk' ? 'Готово' : 'Done'}
+            </button>
           </div>
         </div>
       )}
