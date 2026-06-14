@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import OreBlock from './components/OreBlock';
+import { CreeperStreakIcon } from './components/CreeperStreakIcon';
 import { 
   Volume2, 
   VolumeX, 
@@ -20,6 +21,16 @@ import {
   Play,
   RotateCcw
 } from 'lucide-react';
+import {
+  ErrorItem as EngineErrorItem,
+  getEffectivePools,
+  checkPoolTransition,
+  generateQuestion as engineGenerateQuestion,
+  handleAnswer as engineHandleAnswer,
+  getSolveCount,
+  getLevelXpBounds,
+  calculateLevelFromXp
+} from './gameEngine';
 
 // Custom Type Definitions
 interface Question {
@@ -51,6 +62,7 @@ interface Floater {
 interface ErrorItem {
   f1: number;
   f2: number;
+  cooldownSteps?: number;
 }
 
 interface PickaxeType {
@@ -359,7 +371,7 @@ const t = {
     blocksMined: "Blocks Mined:",
     currentXp: "Current XP:",
     bestStreak: "Best Streak:",
-    resetWorld: "Reset World 🔄",
+    resetWorld: "Reset World",
     howToPlayTitle: "How to play:",
     howToPlayDesc: "Click the matching Chest below containing the correct multiplication product to slice the Ore Block and earn XP. Look out for different ore difficulties and build your Streak multiplier!",
     practicingWeakSpot: "Practicing Weak Spot!",
@@ -420,7 +432,7 @@ const t = {
     blocksMined: "Видобуто блоків:",
     currentXp: "Поточний досвід:",
     bestStreak: "Найкраща серія:",
-    resetWorld: "Скинути Світ 🔄",
+    resetWorld: "Скинути Світ",
     howToPlayTitle: "Як грати:",
     howToPlayDesc: "Натисніть на Скриню з правильною відповіддю знизу, щоб розбити блок руди та отримати XP. Зверніть увагу на руди різної складності та накопичуйте множник серії!",
     practicingWeakSpot: "Тренування слабкого місця!",
@@ -536,43 +548,6 @@ const PixelPickaxe = ({
   );
 };
 
-const getFactorsForLevel = (lvl: number): { f1: number; f2: number } => {
-  let f1: number;
-  let f2: number;
-
-  if (lvl < 5) {
-    const f1Pool = [2, 3];
-    f1 = f1Pool[Math.floor(Math.random() * f1Pool.length)];
-  } else if (lvl < 10) {
-    const f1Pool = [3, 4];
-    f1 = f1Pool[Math.floor(Math.random() * f1Pool.length)];
-  } else if (lvl < 15) {
-    const f1Pool = [4, 5];
-    f1 = f1Pool[Math.floor(Math.random() * f1Pool.length)];
-  } else if (lvl < 20) {
-    const f1Pool = [5, 6];
-    f1 = f1Pool[Math.floor(Math.random() * f1Pool.length)];
-  } else if (lvl < 25) {
-    const f1Pool = [6, 7];
-    f1 = f1Pool[Math.floor(Math.random() * f1Pool.length)];
-  } else if (lvl < 30) {
-    const f1Pool = [8, 9];
-    f1 = f1Pool[Math.floor(Math.random() * f1Pool.length)];
-  } else {
-    // Netherite Mode (lvl >= 30) - Nether World: any factor numbers from 2 to 9
-    const pool = [2, 3, 4, 5, 6, 7, 8, 9];
-    f1 = pool[Math.floor(Math.random() * pool.length)];
-    f2 = pool[Math.floor(Math.random() * pool.length)];
-    return { f1, f2 };
-  }
-
-  // Second factor is any number from 1 to 10 for all regular progression levels (below level 30)
-  const f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-  f2 = f2Pool[Math.floor(Math.random() * f2Pool.length)];
-
-  return { f1, f2 };
-};
-
 export default function App() {
   // Global Counters and Progress
   const [xp, setXp] = useState<number>(() => {
@@ -625,7 +600,19 @@ export default function App() {
   // Smart Practice Database Support (Error Queue)
   const [errorQueue, setErrorQueue] = useState<ErrorItem[]>(() => {
     const saved = localStorage.getItem('math_miner_error_queue');
-    return saved ? JSON.parse(saved) : [];
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((item: any) => ({
+          f1: item.f1,
+          f2: item.f2,
+          cooldownSteps: typeof item.cooldownSteps === 'number' ? item.cooldownSteps : 0
+        }));
+      } catch {
+        return [];
+      }
+    }
+    return [];
   });
 
   // Frequency history counts to reduce duplicate question occurrence probability
@@ -642,6 +629,28 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('math_miner_history_counts', JSON.stringify(historyCounts));
   }, [historyCounts]);
+
+  // Level transition observer mapping to the pure physical engine transition conditions
+  const prevLevelRef = useRef<number>(1);
+  const xpRef = useRef<number>(0);
+
+  // Sync XP changes to update the level milestone check
+  useEffect(() => {
+    const currentLvl = calculateLevelFromXp(xp);
+    const prevLvl = prevLevelRef.current;
+    if (currentLvl !== prevLvl) {
+      const activeQueue = errorQueue.map(e => ({ f1: e.f1, f2: e.f2, cooldownSteps: e.cooldownSteps ?? 0 }));
+      const result = checkPoolTransition(currentLvl, prevLvl, historyCounts, activeQueue);
+      if (result.resetTriggered) {
+        setHistoryCounts(result.historyCounts);
+        setErrorQueue(result.errorQueue);
+      }
+      if (currentLvl >= 35 && prevLvl < 35) {
+        setNetherEntered(true);
+      }
+    }
+    prevLevelRef.current = currentLvl;
+  }, [xp, historyCounts, errorQueue]);
 
   // Particle & text animation vectors
   const [particles, setParticles] = useState<Particle[]>([]);
@@ -661,7 +670,14 @@ export default function App() {
   }, [netherEntered]);
 
   // Active Tool state mapping
-  const currentLevel = Math.floor(xp / 100) + 1;
+  const currentLevel = calculateLevelFromXp(xp);
+  
+  // Dynamic XP progress calculations
+  const bounds = getLevelXpBounds(currentLevel);
+  const xpIntoCurrentLevel = xp - bounds.prevTotal;
+  const xpRequiredForNextLevel = bounds.req;
+  const nextLevelThresholdXp = bounds.prevTotal + bounds.req;
+  const progressPercent = Math.min(100, Math.max(0, (xpIntoCurrentLevel / xpRequiredForNextLevel) * 100));
 
   // Persistence hooks
   useEffect(() => {
@@ -966,17 +982,6 @@ export default function App() {
     }
   }, [lang]);
 
-  // Utility to determine the math/difficulty level based on the selected pickaxe
-  const getEffectiveMathLevel = useCallback(() => {
-    if (selectedPickaxeId) {
-      const p = PICKAXES.find(x => x.id === selectedPickaxeId);
-      if (p && currentLevel >= p.minLevel) {
-        return p.minLevel;
-      }
-    }
-    return currentLevel;
-  }, [selectedPickaxeId, currentLevel]);
-
   // Characterization mappings of tools matching player level progression metrics
   const getActiveTool = useCallback((lvl: number, useOverride: boolean = false) => {
     let toolId = 'wooden';
@@ -992,6 +997,7 @@ export default function App() {
         else if (lvl < 20) toolId = 'iron';
         else if (lvl < 25) toolId = 'diamond';
         else if (lvl < 30) toolId = 'netherite';
+        else if (lvl < 35) toolId = 'gold';
         else toolId = 'gold';
       }
     } else {
@@ -1001,6 +1007,7 @@ export default function App() {
       else if (lvl < 20) toolId = 'iron';
       else if (lvl < 25) toolId = 'diamond';
       else if (lvl < 30) toolId = 'netherite';
+      else if (lvl < 35) toolId = 'gold';
       else toolId = 'gold';
     }
 
@@ -1024,87 +1031,19 @@ export default function App() {
     let f2 = customF2;
 
     if (f1 === undefined || f2 === undefined) {
-      // Setup pools based on user selected/active tool level rather than just max unlocked level
-      let f1Pool: number[] = [];
-      let f2Pool: number[] = [];
+      // Create copies to keep things pure
+      const activeQueue = errorQueue.map(e => ({ f1: e.f1, f2: e.f2, cooldownSteps: e.cooldownSteps ?? 0 }));
+      const lastQ = currentQuestion ? { f1: currentQuestion.factor1Num, f2: currentQuestion.factor2Num } : null;
 
-      const mathLevel = getEffectiveMathLevel();
-
-      if (mathLevel < 5) {
-        f1Pool = [2, 3];
-        f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (mathLevel < 10) {
-        f1Pool = [3, 4];
-        f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (mathLevel < 15) {
-        f1Pool = [4, 5];
-        f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (mathLevel < 20) {
-        f1Pool = [5, 6];
-        f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (mathLevel < 25) {
-        f1Pool = [6, 7];
-        f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else if (mathLevel < 30) {
-        f1Pool = [8, 9];
-        f2Pool = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      } else {
-        f1Pool = [2, 3, 4, 5, 6, 7, 8, 9];
-        f2Pool = [2, 3, 4, 5, 6, 7, 8, 9];
-      }
-
-      // Collect all possible pairs
-      const candidates: { f1: number; f2: number }[] = [];
-      for (const p1 of f1Pool) {
-        for (const p2 of f2Pool) {
-          candidates.push({ f1: p1, f2: p2 });
-        }
-      }
-
-      // Map candidates to their occurrence/solved frequency in history
-      const candidateCounts = candidates.map(c => {
-        const key = `${c.f1}_${c.f2}`;
-        return {
-          candidate: c,
-          count: historyCounts[key] || 0
-        };
-      });
-
-      // Find the minimum frequency in the current pool
-      const minCount = Math.min(...candidateCounts.map(item => item.count));
-
-      // Filter only candidates with the minimum frequency to force uniform selection
-      const bestCandidates = candidateCounts.filter(item => item.count === minCount);
-
-      // Prevent consecutive duplicate questions by avoiding the current question's factor pair if possible
-      const currentF1 = currentQuestion?.factor1Num;
-      const currentF2 = currentQuestion?.factor2Num;
-      
-      let filteredPool = bestCandidates;
-      if (currentF1 !== undefined && currentF2 !== undefined) {
-        // Try to filter out the exact pair from best candidates
-        const withoutPrevious = bestCandidates.filter(
-          item => !(item.candidate.f1 === currentF1 && item.candidate.f2 === currentF2)
-        );
-        if (withoutPrevious.length > 0) {
-          filteredPool = withoutPrevious;
-        } else {
-          // If all best candidates are the current question, look at the whole candidates pool excluding the current one
-          const overallWithoutPrevious = candidateCounts.filter(
-            item => !(item.candidate.f1 === currentF1 && item.candidate.f2 === currentF2)
-          );
-          if (overallWithoutPrevious.length > 0) {
-            const minCountOthers = Math.min(...overallWithoutPrevious.map(item => item.count));
-            filteredPool = overallWithoutPrevious.filter(item => item.count === minCountOthers);
-          }
-        }
-      }
-
-      // Randomly pick from the filtered candidates
-      const chosen = filteredPool[Math.floor(Math.random() * filteredPool.length)].candidate;
-
-      if (customF1 === undefined) f1 = chosen.f1;
-      if (customF2 === undefined) f2 = chosen.f2;
+      const choice = engineGenerateQuestion(
+        currentLevel,
+        selectedPickaxeId,
+        lastQ,
+        historyCounts,
+        activeQueue
+      );
+      f1 = choice.f1;
+      f2 = choice.f2;
     }
 
     const answer = f1 * f2;
@@ -1156,7 +1095,7 @@ export default function App() {
       options,
       answer,
     };
-  }, [getEffectiveMathLevel, historyCounts, currentQuestion]);
+  }, [currentLevel, selectedPickaxeId, historyCounts, currentQuestion, errorQueue]);
 
   // Central driver triggering state transitions of mathematical problems
   const generateNextQuestion = useCallback(() => {
@@ -1166,23 +1105,26 @@ export default function App() {
     setAnsweredCorrectly(false);
     setCurrentQuestionHasError(false);
 
-    // Smart Queue selection criteria
-    if (errorQueue.length > 0 && Math.random() < 0.3) {
-      // Pull a random challenge from weak queue
-      const idx = Math.floor(Math.random() * errorQueue.length);
-      const weakPoint = errorQueue[idx];
-      setCurrentQuestion(generateQuestion(weakPoint.f1, weakPoint.f2));
-      setCurrentQuestionFromQueue(true);
-    } else {
-      setCurrentQuestion(generateQuestion());
-      setCurrentQuestionFromQueue(false);
-    }
+    // Create copies to keep things pure
+    const activeQueue = errorQueue.map(e => ({ f1: e.f1, f2: e.f2, cooldownSteps: e.cooldownSteps ?? 0 }));
+    const lastQ = currentQuestion ? { f1: currentQuestion.factor1Num, f2: currentQuestion.factor2Num } : null;
+
+    const choice = engineGenerateQuestion(
+      currentLevel,
+      selectedPickaxeId,
+      lastQ,
+      historyCounts,
+      activeQueue
+    );
+
+    setCurrentQuestionFromQueue(choice.fromQueue);
+    setCurrentQuestion(generateQuestion(choice.f1, choice.f2));
 
     // Slide/drop indicator delay clean
     setTimeout(() => {
       setIsNewQuestionEntry(false);
     }, 700);
-  }, [errorQueue, generateQuestion]);
+  }, [currentLevel, selectedPickaxeId, historyCounts, currentQuestion, errorQueue, generateQuestion]);
 
   // Fire first load and subsequent pickaxe selection change questions
   useEffect(() => {
@@ -1265,71 +1207,76 @@ export default function App() {
       setAnsweredCorrectly(true);
       setBlocksMined((b) => b + 1);
 
-      // Track correct practice of this factor pair to reduce repetition probability
-      const key = `${currentQuestion.factor1Num}_${currentQuestion.factor2Num}`;
-      setHistoryCounts((prev) => ({
-        ...prev,
-        [key]: (prev[key] || 0) + 1,
-      }));
+      // Get the active tool's multiplier
+      const activeToolForMultiplier = getActiveTool(currentLevel, true);
+      const pickaxeMultiplier = activeToolForMultiplier.multiplier;
+
+      // Use pure algebraic logic from game engine
+      const activeQueue = errorQueue.map(e => ({ f1: e.f1, f2: e.f2, cooldownSteps: e.cooldownSteps ?? 0 }));
+      const nextState = engineHandleAnswer(
+        currentQuestion.factor1Num,
+        currentQuestion.factor2Num,
+        true,
+        streak,
+        pickaxeMultiplier,
+        xp,
+        historyCounts,
+        activeQueue
+      );
+      setHistoryCounts(nextState.historyCounts);
 
       const isFirstAttempt = failedOptions.length === 0;
+      
+      // Update the smart practicing errorQueue based on the engine result (or filtering if solved correctly on first try)
+      if (currentQuestionFromQueue && isFirstAttempt) {
+        setErrorQueue(nextState.errorQueue.filter(
+          (e) =>
+            !(
+              (e.f1 === currentQuestion.factor1Num && e.f2 === currentQuestion.factor2Num) ||
+              (e.f1 === currentQuestion.factor2Num && e.f2 === currentQuestion.factor1Num)
+            )
+        ));
+      } else {
+        setErrorQueue(nextState.errorQueue);
+      }
+
       const oreConfig = getOreConfig(currentQuestion.factor1Num, currentQuestion.factor2Num);
 
       // Sparkle ore textures burst
       spawnMineParticles(clickX, clickY, oreConfig.particle);
 
       // XP & Streaks logic
-      const baseXP = oreConfig.xpBonus;
-      // Bonus modifier for keeping strong mining streak
-      const streakBonus = isFirstAttempt ? Math.floor(streak / 4) * 3 : 0;
-      const totalGain = baseXP + streakBonus;
+      const totalGain = nextState.totalXpGained;
+      const streakBonus = nextState.streakBonus;
 
       // Create rising overlay text
       const risingMessage = `+${totalGain} XP 💎${streakBonus > 0 ? ` (🔥+${streakBonus})` : ''}`;
       setFloaters((prev) => [...prev, { id: Date.now(), x: clickX, y: clickY - 50, text: risingMessage }]);
 
       // Update calculations
-      setXp((prev) => {
-        const nextXp = prev + totalGain;
-        const currentLvl = Math.floor(prev / 100) + 1;
-        const nextLvl = Math.floor(nextXp / 100) + 1;
+      const currentLvl = calculateLevelFromXp(xp);
+      const nextLvl = calculateLevelFromXp(nextState.nextXp);
+      
+      if (nextLvl > currentLvl) {
+        // Only pop banners if transitioning onto an exact milestones unlock tier below 35
+        const pickaxeMilestones = [5, 10, 15, 20, 25, 30];
         
-        if (nextLvl > currentLvl) {
-          // Trigger ONLY at gear unlock milestones (multiples of 5, e.g., 5, 10, 15, 20, 25, 30...)
-          if (nextLvl % 5 === 0) {
-            setTimeout(() => {
-              if (nextLvl === 30 && !netherEntered) {
-                playSoundEffect('portal');
-                setShowNetherPortalModal(true);
-              } else {
-                playSoundEffect('levelUp');
-                setShowLevelUpBanner(nextLvl);
-              }
-            }, 400);
+        setTimeout(() => {
+          if (nextLvl === 35 && !netherEntered) {
+            playSoundEffect('portal');
+            setShowNetherPortalModal(true);
+          } else if (nextLvl < 35 && pickaxeMilestones.includes(nextLvl)) {
+            playSoundEffect('levelUp');
+            setShowLevelUpBanner(nextLvl);
           }
-        }
-        return nextXp;
-      });
+        }, 400);
+      }
+      setXp(nextState.nextXp); // Syncing nextXp directly from pure engine calculations.
 
       // Maintain user streaks
-      setStreak((prev) => {
-        const next = prev + 1;
-        setHighStreak((h) => Math.max(h, next));
-        return next;
-      });
-
-      // If answered correctly on first try, clean from the smart weak spots error queue
-      if (currentQuestionFromQueue && isFirstAttempt) {
-        setErrorQueue((prev) =>
-          prev.filter(
-            (e) =>
-              !(
-                (e.f1 === currentQuestion.factor1Num && e.f2 === currentQuestion.factor2Num) ||
-                (e.f1 === currentQuestion.factor2Num && e.f2 === currentQuestion.factor1Num)
-              )
-          )
-        );
-      }
+      const nextStreakValue = nextState.nextStreak;
+      setStreak(nextStreakValue);
+      setHighStreak((h) => Math.max(h, nextStreakValue));
 
       // Automatically transition to new multiplication ore blocks
       setTimeout(() => {
@@ -1347,21 +1294,22 @@ export default function App() {
       setShakeBlock(true);
       setTimeout(() => setShakeBlock(false), 500);
 
-      // If error not already captured for this block, save to smart practicing queue
-      if (!currentQuestionHasError) {
-        setCurrentQuestionHasError(true);
-        const exists = errorQueue.some(
-          (item) =>
-            (item.f1 === currentQuestion.factor1Num && item.f2 === currentQuestion.factor2Num) ||
-            (item.f1 === currentQuestion.factor2Num && item.f2 === currentQuestion.factor1Num)
-        );
-        if (!exists) {
-          setErrorQueue((prev) => [
-            ...prev,
-            { f1: currentQuestion.factor1Num, f2: currentQuestion.factor2Num },
-          ]);
-        }
-      }
+      // Save to smart practicing queue using pure algebraic engine
+      const activeQueue = errorQueue.map(e => ({ f1: e.f1, f2: e.f2, cooldownSteps: e.cooldownSteps ?? 0 }));
+      const activeToolForMultiplier = getActiveTool(currentLevel);
+      const pickaxeMultiplier = activeToolForMultiplier.multiplier;
+      const nextState = engineHandleAnswer(
+        currentQuestion.factor1Num,
+        currentQuestion.factor2Num,
+        false,
+        streak,
+        pickaxeMultiplier,
+        xp,
+        historyCounts,
+        activeQueue
+      );
+      setErrorQueue(nextState.errorQueue);
+      setCurrentQuestionHasError(true);
 
       // Spawn puff explosion cloud structures
       spawnMineParticles(clickX, clickY, '💨');
@@ -1605,12 +1553,20 @@ export default function App() {
 
             {/* Streak module indicators */}
             <div className="pixel-border bg-[#1e1e1e] p-1 px-2 text-center rounded-none flex items-center justify-center gap-1.5 sm:gap-3 h-10 sm:h-12 min-w-[70px] xs:min-w-[85px] sm:min-w-[120px] box-border">
-              <div className="text-[#ff5555] shrink-0 flex items-center"><Flame size={14} className="animate-pulse sm:w-[18px]" /></div>
+              <div className="text-[#ff5555] shrink-0 flex items-center">
+                {streak >= 50 ? <CreeperStreakIcon size={1.5} className="animate-pulse" /> : <Flame size={14} className="animate-pulse sm:w-[18px]" />}
+              </div>
               <div className="text-left flex flex-col justify-center">
                 <span className="font-pixel text-[6px] sm:text-[8px] text-[#8b8b8b] uppercase block leading-none mb-0.5">{t[lang].streak}</span>
-                <span className="font-pixel text-[8px] xs:text-[10px] sm:text-[12px] text-[#ff5555] font-bold block text-shadow-streak leading-none">
-                  🔥 {streak}
-                </span>
+                {streak >= 50 ? (
+                  <span className="font-pixel text-[8px] xs:text-[10px] sm:text-[12px] text-[#4cd645] font-bold block text-shadow-streak leading-none">
+                    {streak}
+                  </span>
+                ) : (
+                  <span className="font-pixel text-[8px] xs:text-[10px] sm:text-[12px] text-[#ff5555] font-bold block text-shadow-streak leading-none">
+                    {streak}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1620,7 +1576,7 @@ export default function App() {
               <div className="text-left flex flex-col justify-center">
                 <span className="font-pixel text-[6px] sm:text-[8px] text-[#8b8b8b] uppercase block leading-none mb-0.5">{t[lang].maxRecord}</span>
                 <span className="font-pixel text-[8px] xs:text-[10px] sm:text-[12px] text-yellow-400 font-bold block text-shadow-streak leading-none">
-                  🏆 {highStreak}
+                  {highStreak}
                 </span>
               </div>
             </div>
@@ -1633,10 +1589,10 @@ export default function App() {
           {/* Progress fill calculating next level limits dynamically */}
           <div 
             className="h-full bg-[#55ff55] transition-all duration-300 ease-out" 
-            style={{ width: `${xp % 100}%`, boxShadow: '0 0 10px #55ff55, inset 0 1px 0 rgba(255,255,255,0.3)' }}
+            style={{ width: `${progressPercent}%`, boxShadow: '0 0 10px #55ff55, inset 0 1px 0 rgba(255,255,255,0.3)' }}
           />
           <div className="absolute inset-0 flex items-center justify-center font-pixel text-[6px] sm:text-[9px] text-white font-bold pointer-events-none text-shadow-streak uppercase">
-            XP: {xp} / {Math.ceil((xp + 1) / 100) * 100} {t[lang].toNextLevel}
+            XP: {xp} / {nextLevelThresholdXp} {t[lang].toNextLevel}
           </div>
         </div>
       </header>
@@ -2196,9 +2152,9 @@ export default function App() {
                   (pickaxe.id === 'stone' && currentLevel >= 5 && currentLevel < 10) ||
                   (pickaxe.id === 'copper' && currentLevel >= 10 && currentLevel < 15) ||
                   (pickaxe.id === 'iron' && currentLevel >= 15 && currentLevel < 20) ||
-                  (pickaxe.id === 'gold' && currentLevel >= 20 && currentLevel < 25) ||
-                  (pickaxe.id === 'diamond' && currentLevel >= 25 && currentLevel < 30) ||
-                  (pickaxe.id === 'netherite' && currentLevel >= 30)
+                  (pickaxe.id === 'diamond' && currentLevel >= 20 && currentLevel < 25) ||
+                  (pickaxe.id === 'netherite' && currentLevel >= 25 && currentLevel < 30) ||
+                  (pickaxe.id === 'gold' && currentLevel >= 30)
                 );
                 
                 const isEquippedActive = isSelected || isAutoActive;
