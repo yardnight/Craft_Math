@@ -1,0 +1,32 @@
+/* Базові стилі для нашого Canvas */
+.creeper-npc-canvas {
+  display: block;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: -webkit-crisp-edges;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  
+  /* Важливо для відносного зміщення при трясці */
+  position: relative; 
+  
+  /* Точка росту — від землі вгору */
+  transform-origin: bottom center; 
+  
+  /* Плавність для зміни масштабу з JS */
+  transition: transform 0.03s linear; 
+}
+
+/* Ефект жорсткої піксельної вібрації (зміщуємо позицію) */
+@keyframes npcPixelShake {
+  0%   { top: 0px;  left: 0px; }
+  20%  { top: 1px;  left: -2px; }
+  40%  { top: -1px; left: 2px; }
+  60%  { top: -1px; left: -1px; }
+  80%  { top: 2px;  left: 1px; }
+  100% { top: 0px;  left: 0px; }
+}
+
+/* Цей клас тепер керується виключно через JS на Фазі 1 (0-50% прогресу) */
+.npc-primed-shake {
+  animation: npcPixelShake 0.05s infinite linear !important;
+}

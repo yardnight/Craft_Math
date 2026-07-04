@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import OreBlock from './components/OreBlock';
 import { CreeperStreakIcon } from './components/CreeperStreakIcon';
+import { CreeperNPC } from './components/CreeperNPC';
 import { 
   Volume2, 
   VolumeX, 
@@ -50,6 +51,9 @@ interface Particle {
   rotation: number;
   scale: number;
   opacity: number;
+  color?: string;
+  isSquare?: boolean;
+  isTnt?: boolean;
 }
 
 interface Floater {
@@ -348,6 +352,80 @@ const customStyles = `
     height: 14px;
     border: 4px solid #555;
   }
+
+  /* Red pixel explosion flash for Nether/Creeper mode */
+  @keyframes pixelFlash {
+    0% { opacity: 0; }
+    8% { opacity: 0.95; }
+    20% { opacity: 0.25; }
+    35% { opacity: 0.9; }
+    50% { opacity: 0.2; }
+    65% { opacity: 0.85; }
+    80% { opacity: 0.35; }
+    95% { opacity: 0.75; }
+    100% { opacity: 0; }
+  }
+
+  .animate-pixel-flash {
+    animation: pixelFlash 1.5s steps(8, end) forwards;
+  }
+
+  .pixel-red-overlay {
+    background-image: 
+      linear-gradient(45deg, #ef4444 25%, transparent 25%), 
+      linear-gradient(-45deg, #ef4444 25%, transparent 25%), 
+      linear-gradient(45deg, transparent 75%, #ef4444 75%), 
+      linear-gradient(-45deg, transparent 75%, #ef4444 75%);
+    background-size: 8px 8px;
+    background-color: rgba(239, 68, 68, 0.45);
+    box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.85), inset 0 0 200px rgba(220, 38, 38, 0.95);
+  }
+
+  /* Handheld Pickaxe breathing/hovering */
+  :root {
+    --strike-x: -110px;
+    --strike-y: 20px;
+  }
+  @media (min-width: 475px) {
+    :root {
+      --strike-x: -135px;
+      --strike-y: 25px;
+    }
+  }
+  @media (min-width: 640px) {
+    :root {
+      --strike-x: -170px;
+      --strike-y: 30px;
+    }
+  }
+  @media (min-width: 768px) {
+    :root {
+      --strike-x: -205px;
+      --strike-y: 35px;
+    }
+  }
+
+  @keyframes pickaxeIdle {
+    0%, 100% { transform: translateY(0) rotate(-15deg) scale(1.5); }
+    50% { transform: translateY(-8px) rotate(-12deg) scale(1.5); }
+  }
+
+  .animate-pickaxe-idle {
+    animation: pickaxeIdle 3s ease-in-out infinite;
+  }
+
+  /* Swinging from the right to hit the center cube/creeper */
+  @keyframes pickaxeSwingToBlock {
+    0% { transform: translate(0, 0) rotate(-15deg) scale(1.5); }
+    20% { transform: translate(-10px, -20px) rotate(15deg) scale(1.5); } /* wind up, back-and-up, still enlarged, no overflow-x */
+    40% { transform: translate(var(--strike-x), var(--strike-y)) rotate(-65deg) scale(1.0); } /* hit center block, shrinks to current size */
+    60% { transform: translate(var(--strike-x), var(--strike-y)) rotate(-65deg) scale(1.0); } /* delay hit frame, still small */
+    100% { transform: translate(0, 0) rotate(-15deg) scale(1.5); } /* return to hand, grows back to 1.5 */
+  }
+
+  .animate-pickaxe-strike {
+    animation: pickaxeSwingToBlock 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+  }
 `;
 
 // Game Language Translations Dictionary
@@ -405,7 +483,7 @@ const t = {
     crackMineralTitle: "Crack to see mineral parts!",
     netherPortalTitle: "Nether Portal Opened!",
     netherPortalDesc: "You have unlocked the Netherite Pickaxe! A mysterious purple portal has opened, crackling with hot obsidian air. Are you ready to enter the Nether World?",
-    enterNetherBtn: "Enter Nether World 😈",
+    enterNetherBtn: "Enter Nether World",
     netherWorldActive: "Nether World",
     choosePickaxe: "Pickaxe Selector",
     pickaxeUnlockedAt: "Unlocked at Level",
@@ -465,9 +543,9 @@ const t = {
     howToPlay: "✨ Як грати: Натисніть на Скриню з правильною відповіддю знизу, щоб розбити блок руди та отримати XP. Зверніть увагу на руди різної складності та накопичуйте множник серії!",
     crackMineralTitle: "Клікни, щоб розбити руду!",
     netherPortalTitle: "Портал в Незер відкрито!",
-    netherPortalDesc: "Ви розблокували Незеритове кайло! З'явився таємничий фіолетовий портал, від якого віє гарячим обсидіановим повітрям. Чи готові ви увійти в Незер ворлд?",
-    enterNetherBtn: "Увійти в Незер ворлд 😈",
-    netherWorldActive: "Незер Ворлд",
+    netherPortalDesc: "Ви розблокували Незеритове кайло! З'явився таємничий фіолетовий портал, від якого віє гарячим обсидіановим повітрям. Чи готові ви увійти в Незер світ?",
+    enterNetherBtn: "Увійти в Незер світ",
+    netherWorldActive: "Незер Світ",
     choosePickaxe: "Вибір кайла",
     pickaxeUnlockedAt: "Розблокується на рівні",
     pickaxeLocked: "ЗАБЛОКОВАНО 🔒",
@@ -580,6 +658,11 @@ export default function App() {
   const [showStatsModal, setShowStatsModal] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
+  
+  // Developer Mode (DevMode) states
+  const [devModeSequence, setDevModeSequence] = useState<string[]>([]);
+  const [showDevModeModal, setShowDevModeModal] = useState<boolean>(false);
+  const [tempLevel, setTempLevel] = useState<number>(1);
 
   // Sound preferences
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
@@ -596,6 +679,20 @@ export default function App() {
   const [shakeBlock, setShakeBlock] = useState<boolean>(false);
   const [currentQuestionFromQueue, setCurrentQuestionFromQueue] = useState<boolean>(false);
   const [currentQuestionHasError, setCurrentQuestionHasError] = useState<boolean>(false);
+
+  // Creeper NPC state for Nether World mode
+  const [creeperPrimed, setCreeperPrimed] = useState<boolean>(false);
+  const [creeperTimeLeft, setCreeperTimeLeft] = useState<number>(7000);
+  const [showCreeperFlash, setShowCreeperFlash] = useState<boolean>(false);
+  const [tntTimers, setTntTimers] = useState<{[key: number]: number}>({});
+
+  const totalCreeperTime = 7000;
+  const minCreeperSize = 1.5;
+  const maxCreeperSize = 6.0;
+
+  const creeperSize = creeperPrimed 
+    ? 6.0 
+    : minCreeperSize + ((totalCreeperTime - Math.max(0, creeperTimeLeft)) / totalCreeperTime) * (maxCreeperSize - minCreeperSize);
 
   // Smart Practice Database Support (Error Queue)
   const [errorQueue, setErrorQueue] = useState<ErrorItem[]>(() => {
@@ -1098,19 +1195,26 @@ export default function App() {
   }, [currentLevel, selectedPickaxeId, historyCounts, currentQuestion, errorQueue]);
 
   // Central driver triggering state transitions of mathematical problems
-  const generateNextQuestion = useCallback(() => {
+  const generateNextQuestion = useCallback((forcedLevel?: number) => {
     setIsNewQuestionEntry(true);
     setFailedOptions([]);
     setSelectedOption(null);
     setAnsweredCorrectly(false);
     setCurrentQuestionHasError(false);
 
+    // Reset Creeper states
+    setCreeperTimeLeft(7000);
+    setCreeperPrimed(false);
+    setTntTimers({});
+
+    const activeLevel = forcedLevel ?? calculateLevelFromXp(xp);
+
     // Create copies to keep things pure
     const activeQueue = errorQueue.map(e => ({ f1: e.f1, f2: e.f2, cooldownSteps: e.cooldownSteps ?? 0 }));
     const lastQ = currentQuestion ? { f1: currentQuestion.factor1Num, f2: currentQuestion.factor2Num } : null;
 
     const choice = engineGenerateQuestion(
-      currentLevel,
+      activeLevel,
       selectedPickaxeId,
       lastQ,
       historyCounts,
@@ -1124,7 +1228,92 @@ export default function App() {
     setTimeout(() => {
       setIsNewQuestionEntry(false);
     }, 700);
-  }, [currentLevel, selectedPickaxeId, historyCounts, currentQuestion, errorQueue, generateQuestion]);
+  }, [xp, selectedPickaxeId, historyCounts, currentQuestion, errorQueue, generateQuestion]);
+
+  const handleCreeperExplosion = useCallback(() => {
+    setCreeperPrimed(true);
+    setCreeperTimeLeft(0);
+    setShowCreeperFlash(true);
+    playSoundEffect('error'); // Play explosion hiss
+ 
+    // Wait 1.5 seconds for the visual explosion animation to complete
+    setTimeout(() => {
+      let nextLvl = 1;
+      setXp((prevXp) => {
+        const nextXp = Math.max(0, prevXp - 10);
+        nextLvl = calculateLevelFromXp(nextXp);
+        
+        if (nextLvl < 35) {
+          setNetherEntered(false);
+        }
+        
+        return nextXp;
+      });
+ 
+      // Reset Creeper primed state
+      setCreeperPrimed(false);
+      setCreeperTimeLeft(7000);
+      setShowCreeperFlash(false);
+      setPickaxeStrike(null);
+      
+      // Delay slightly to let state propagates, then call with the calculated nextLvl!
+      setTimeout(() => {
+        generateNextQuestion(nextLvl);
+      }, 50);
+    }, 1500);
+  }, [playSoundEffect, generateNextQuestion]);
+
+  // Creeper approaching countdown timer
+  useEffect(() => {
+    if (!netherEntered || !currentQuestion || answeredCorrectly || creeperPrimed) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setCreeperTimeLeft((prev) => {
+        const nextTime = prev - 100;
+        if (nextTime <= 0) {
+          clearInterval(interval);
+          handleCreeperExplosion();
+          return 0;
+        }
+        return nextTime;
+      });
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [netherEntered, currentQuestion, answeredCorrectly, creeperPrimed, handleCreeperExplosion]);
+
+  // TNT countdown timer for incorrect chests
+  useEffect(() => {
+    if (Object.keys(tntTimers).length === 0 || answeredCorrectly) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setTntTimers((prev) => {
+        const next = { ...prev };
+        let exploded = false;
+        for (const idxStr of Object.keys(next)) {
+          const idx = Number(idxStr);
+          const newTime = next[idx] - 0.1;
+          if (newTime <= 0) {
+            exploded = true;
+            delete next[idx];
+          } else {
+            next[idx] = Math.max(0, newTime);
+          }
+        }
+        if (exploded) {
+          handleCreeperExplosion();
+          return {};
+        }
+        return next;
+      });
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [tntTimers, answeredCorrectly, handleCreeperExplosion]);
 
   // Fire first load and subsequent pickaxe selection change questions
   useEffect(() => {
@@ -1133,11 +1322,20 @@ export default function App() {
   }, [selectedPickaxeId]);
 
   // Particles rendering loop
-  const spawnMineParticles = useCallback((origX: number, origY: number, emoji: string) => {
+  const spawnMineParticles = useCallback((
+    origX: number, 
+    origY: number, 
+    emoji: string, 
+    color?: string, 
+    isSquare?: boolean, 
+    isTnt?: boolean,
+    altColor?: string
+  ) => {
     const list: Particle[] = [];
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 18; i++) {
       const angle = Math.random() * Math.PI * 2;
       const velocityMagnitude = 3.5 + Math.random() * 8.5;
+      const particleColor = altColor && Math.random() > 0.4 ? altColor : color;
       list.push({
         id: Math.random() * 100000 + i,
         x: origX,
@@ -1148,6 +1346,9 @@ export default function App() {
         rotation: Math.random() * 360,
         scale: 0.7 + Math.random() * 0.7,
         opacity: 1,
+        color: particleColor,
+        isSquare,
+        isTnt,
       });
     }
     setParticles((prev) => [...prev, ...list]);
@@ -1187,6 +1388,49 @@ export default function App() {
     return () => clearTimeout(floaterTimer);
   }, [floaters]);
 
+  // Developer Mode (DevMode) sequence click handler and scroll-wheel listeners
+  const handleStatPanelClick = (type: 'gear' | 'streak' | 'record') => {
+    playSoundEffect('click');
+    setDevModeSequence(prev => {
+      if (type === 'gear') {
+        return ['gear'];
+      }
+      if (type === 'streak' && prev.length === 1 && prev[0] === 'gear') {
+        return ['gear', 'streak'];
+      }
+      if (type === 'record' && prev.length === 2 && prev[0] === 'gear' && prev[1] === 'streak') {
+        setTempLevel(Math.min(35, currentLevel));
+        setShowDevModeModal(true);
+        return [];
+      }
+      return [];
+    });
+  };
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.deltaY > 0) {
+      setTempLevel(prev => Math.min(35, prev + 1));
+    } else if (e.deltaY < 0) {
+      setTempLevel(prev => Math.max(0, prev - 1));
+    }
+  };
+
+  const wheelContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (showDevModeModal && wheelContainerRef.current) {
+      const activeEl = wheelContainerRef.current.querySelector(`[data-level="${tempLevel}"]`);
+      if (activeEl) {
+        activeEl.scrollIntoView({
+          behavior: 'auto',
+          block: 'center',
+          inline: 'nearest'
+        });
+      }
+    }
+  }, [tempLevel, showDevModeModal]);
+
   // Main interactive event click controller
   const handleInteraction = (optionValue: number, optionIdx: number, event: React.MouseEvent<HTMLButtonElement>) => {
     if (answeredCorrectly || !currentQuestion) return;
@@ -1206,6 +1450,11 @@ export default function App() {
       playSoundEffect('correct');
       setAnsweredCorrectly(true);
       setBlocksMined((b) => b + 1);
+
+      // Trigger Creeper defeat explosion (harmless visual explosion)
+      if (netherEntered) {
+        setCreeperPrimed(true);
+      }
 
       // Get the active tool's multiplier
       const activeToolForMultiplier = getActiveTool(currentLevel, true);
@@ -1242,8 +1491,8 @@ export default function App() {
 
       const oreConfig = getOreConfig(currentQuestion.factor1Num, currentQuestion.factor2Num);
 
-      // Sparkle ore textures burst
-      spawnMineParticles(clickX, clickY, oreConfig.particle);
+      // Sparkle ore textures burst using custom colored squares
+      spawnMineParticles(clickX, clickY, '■', oreConfig.themeColor, true, false, oreConfig.sparkleColor);
 
       // XP & Streaks logic
       const totalGain = nextState.totalXpGained;
@@ -1288,7 +1537,20 @@ export default function App() {
       // MATHEMATICAL FAILURE (Creeper triggered!)
       playSoundEffect('error');
       setFailedOptions((prev) => [...prev, optionIdx]);
+      setTntTimers((prev) => ({ ...prev, [optionIdx]: 3.0 }));
       setStreak(0); // broken streaks must restart
+
+      // Reduce Creeper time left by 2000ms instantly!
+      if (netherEntered) {
+        setCreeperTimeLeft((prev) => {
+          const nextTime = prev - 2000;
+          if (nextTime <= 0) {
+            handleCreeperExplosion();
+            return 0;
+          }
+          return nextTime;
+        });
+      }
 
       // Trigger red shake animations
       setShakeBlock(true);
@@ -1310,9 +1572,6 @@ export default function App() {
       );
       setErrorQueue(nextState.errorQueue);
       setCurrentQuestionHasError(true);
-
-      // Spawn puff explosion cloud structures
-      spawnMineParticles(clickX, clickY, '💨');
 
       // Float error indicators
       setFloaters((prev) => [
@@ -1366,8 +1625,13 @@ export default function App() {
     : null;
 
   return (
-    <div className={`min-h-screen ${netherEntered ? 'bg-nether-grid text-red-50' : 'bg-pixel-grid bg-[#1e1e1e] text-white'} flex flex-col font-mono selection:bg-green-500 selection:text-black`}>
+    <div className={`min-h-screen overflow-x-hidden ${netherEntered ? 'bg-nether-grid text-red-50' : 'bg-pixel-grid bg-[#1e1e1e] text-white'} flex flex-col font-mono selection:bg-green-500 selection:text-black`}>
       <style>{customStyles}</style>
+
+      {/* Red pixelated damage flash overlay when Creeper explodes */}
+      {showCreeperFlash && (
+        <div className="fixed inset-0 pixel-red-overlay animate-pixel-flash pointer-events-none z-50" />
+      )}
 
       {/* Main Dynamic Animation Effects Backdrop overlays */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-50">
@@ -1385,35 +1649,37 @@ export default function App() {
           </div>
         ))}
 
-        {/* Flying voxel pixel explosion elements */}
-        {particles.map((p) => (
-          <div
-            key={p.id}
-            className="absolute text-lg select-none leading-none pointer-events-none"
-            style={{
-              left: `${p.x}px`,
-              top: `${p.y}px`,
-              opacity: p.opacity,
-              transform: `scale(${p.scale}) rotate(${p.rotation}deg)`,
-              transition: 'transform 0.02s linear, opacity 0.02s linear',
-            }}
-          >
-            {p.emoji}
-          </div>
-        ))}
+         {/* Flying voxel pixel explosion elements */}
+         {particles.map((p) => (
+           <div
+             key={p.id}
+             className="absolute text-lg select-none leading-none pointer-events-none"
+             style={{
+               left: `${p.x}px`,
+               top: `${p.y}px`,
+               opacity: p.opacity,
+               transform: `scale(${p.scale}) rotate(${p.rotation}deg)`,
+               transition: 'transform 0.02s linear, opacity 0.02s linear',
+             }}
+           >
+             {p.isSquare ? (
+               <span 
+                 className="inline-block w-3.5 h-3.5 border-2 border-black/70 shadow-[2px_2px_0px_rgba(0,0,0,0.35)]"
+                 style={{ backgroundColor: p.color || '#3fc1c9' }}
+               />
+             ) : p.isTnt ? (
+               <span className="inline-flex flex-col items-center justify-center bg-[#db2f2f] border-2 border-black text-white font-pixel font-bold leading-none w-7 h-7 relative select-none shadow-[2px_2px_0px_rgba(0,0,0,0.35)]">
+                 <span className="absolute left-0 right-0 top-1.5 bottom-1.5 bg-white text-black font-black text-[6px] tracking-tighter flex items-center justify-center leading-none">
+                   TNT
+                 </span>
+               </span>
+             ) : (
+               p.emoji
+             )}
+           </div>
+         ))}
 
-        {/* Floating Pickaxe animation strike indicator */}
-        {pickaxeStrike && (
-          <div
-            className="absolute text-5xl pointer-events-none select-none z-50 animate-swing"
-            style={{
-              left: `${pickaxeStrike.x - 30}px`,
-              top: `${pickaxeStrike.y - 30}px`,
-            }}
-          >
-            ⛏️
-          </div>
-        )}
+
       </div>
 
       {/* Level Up Spectacular Fanfare Alert Overlay Modal */}
@@ -1485,7 +1751,6 @@ export default function App() {
               <div className="absolute inset-2 border-4 border-dashed border-purple-500/50 rounded-full animate-spin [animation-duration:12s]" />
               <div className="absolute inset-6 border-4 border-dashed border-purple-400/30 rounded-full animate-spin [animation-duration:6s] [animation-direction:reverse]" />
               <div className="absolute w-full h-full bg-[linear-gradient(rgba(147,51,234,0.15)_3px,_transparent_3px)] bg-[size:100%_8px] pointer-events-none" />
-              <span className="font-pixel text-4xl animate-pulse z-10 font-bold">🔮</span>
             </div>
 
             <button
@@ -1499,6 +1764,145 @@ export default function App() {
             >
               {t[lang].enterNetherBtn}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* DevMode Modal with custom vertical wheel picker */}
+      {showDevModeModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="relative w-full max-w-xs p-6 border-8 border-yellow-600 bg-[#2b2b2b] text-center flex flex-col items-center shadow-[0_0_40px_rgba(234,179,8,0.3)]">
+            
+            <div className="text-4xl mb-3 select-none animate-bounce">🛠️</div>
+            
+            <h2 className="font-pixel text-yellow-500 text-sm md:text-base uppercase tracking-wider mb-4 text-shadow-stat">
+              {lang === 'uk' ? 'Режим Розробника' : 'Developer Mode'}
+            </h2>
+            
+            <p className="font-pixel text-[9px] sm:text-xs text-stone-300 mb-4 uppercase">
+              {lang === 'uk' ? 'Оберіть рівень гравця:' : 'Select Player Level:'}
+            </p>
+
+            {/* Dynamic Level Select Wheel Container */}
+            <div className="flex flex-col items-center w-full mb-6 relative">
+              
+              {/* Arrow Up button */}
+              <button
+                onClick={() => setTempLevel(prev => Math.max(0, prev - 1))}
+                className="w-10 h-10 bg-zinc-800 hover:bg-neutral-700 border-4 border-black text-yellow-500 flex items-center justify-center font-bold text-lg mb-2 cursor-pointer transition-all active:scale-90"
+              >
+                ▲
+              </button>
+
+              {/* Wheel Selector Viewport */}
+              <div 
+                ref={wheelContainerRef}
+                onWheel={handleWheel}
+                className="w-32 h-40 bg-black border-4 border-zinc-900 rounded-none overflow-y-scroll relative flex flex-col py-12 scroll-smooth scrollbar-none snap-y snap-mandatory select-none"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+              >
+                {/* Center target indicator lens */}
+                <div className="absolute left-0 right-0 top-[calc(50%-18px)] h-9 border-t-2 border-b-2 border-yellow-500/40 bg-yellow-500/5 pointer-events-none z-10" />
+                
+                {Array.from({ length: 36 }, (_, i) => i).map((lvl) => {
+                  const isSelected = lvl === tempLevel;
+                  const diff = Math.abs(lvl - tempLevel);
+                  
+                  let opacity = 1;
+                  let scale = 1.15;
+                  let colorClass = "text-yellow-400 font-bold";
+
+                  if (diff === 0) {
+                    opacity = 1;
+                    scale = 1.3;
+                    colorClass = "text-[#55ff55] font-black text-shadow-streak text-lg";
+                  } else if (diff === 1) {
+                    opacity = 0.6;
+                    scale = 0.95;
+                    colorClass = "text-stone-300";
+                  } else if (diff === 2) {
+                    opacity = 0.3;
+                    scale = 0.75;
+                    colorClass = "text-stone-500";
+                  } else {
+                    opacity = 0.1;
+                    scale = 0.55;
+                    colorClass = "text-stone-700";
+                  }
+
+                  return (
+                    <div
+                      key={lvl}
+                      data-level={lvl}
+                      onClick={() => setTempLevel(lvl)}
+                      className={`h-9 flex items-center justify-center shrink-0 cursor-pointer transition-all duration-150 snap-center font-mono`}
+                      style={{
+                        opacity,
+                        transform: `scale(${scale})`,
+                      }}
+                    >
+                      <span className={`${colorClass} select-none`}>
+                        LVL {lvl}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Arrow Down button */}
+              <button
+                onClick={() => setTempLevel(prev => Math.min(35, prev + 1))}
+                className="w-10 h-10 bg-zinc-800 hover:bg-neutral-700 border-4 border-black text-yellow-500 flex items-center justify-center font-bold text-lg mt-2 cursor-pointer transition-all active:scale-90"
+              >
+                ▼
+              </button>
+            </div>
+
+            {/* Bottom controls */}
+            <div className="flex flex-col gap-2 w-full">
+              <button
+                onClick={() => {
+                  // Apply selection: Update XP according to chosen level starting bounds
+                  let newXp = 0;
+                  if (tempLevel >= 2) {
+                    newXp = getLevelXpBounds(tempLevel).prevTotal;
+                  } else if (tempLevel === 1) {
+                    newXp = 0;
+                  }
+                  
+                  // Apply change
+                  setXp(newXp);
+                  
+                  // Handle automatically exiting Nether World if selected level is < 35
+                  if (tempLevel < 35) {
+                    setNetherEntered(false);
+                  } else {
+                    setNetherEntered(true);
+                  }
+
+                  setShowDevModeModal(false);
+                  playSoundEffect('portal');
+                  
+                  // Force next question generation for newly configured level
+                  setTimeout(() => {
+                    generateNextQuestion(tempLevel);
+                  }, 50);
+                }}
+                className="font-pixel text-[10px] sm:text-xs bg-yellow-500 hover:bg-yellow-400 text-black px-4 py-3 border-b-4 border-yellow-800 uppercase font-black transition-all duration-100 hover:translate-y-0.5 active:translate-y-1 block w-full cursor-pointer shadow-[0_0_10px_rgba(234,179,8,0.2)]"
+              >
+                {lang === 'uk' ? 'Застосувати' : 'Apply & Close'}
+              </button>
+              
+              <button
+                onClick={() => {
+                  setShowDevModeModal(false);
+                  playSoundEffect('click');
+                }}
+                className="font-pixel text-[8px] sm:text-[10px] bg-stone-700 hover:bg-stone-600 text-stone-200 px-4 py-2 border-b-4 border-stone-900 uppercase transition-all duration-100 block w-full cursor-pointer"
+              >
+                {lang === 'uk' ? 'Скасувати' : 'Cancel'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1541,7 +1945,11 @@ export default function App() {
           <div className="flex items-center gap-1.5 sm:gap-3 justify-center w-full sm:w-auto">
             
             {/* Active Level Panel */}
-            <div className="pixel-border bg-[#1e1e1e] p-1 px-2 text-center rounded-none flex items-center justify-center gap-1.5 sm:gap-3 h-10 sm:h-12 min-w-[70px] xs:min-w-[85px] sm:min-w-[120px] box-border">
+            <div 
+              onClick={() => handleStatPanelClick('gear')}
+              className="pixel-border bg-[#1e1e1e] hover:bg-neutral-800 cursor-pointer transition-colors p-1 px-2 text-center rounded-none flex items-center justify-center gap-1.5 sm:gap-3 h-10 sm:h-12 min-w-[70px] xs:min-w-[85px] sm:min-w-[120px] box-border"
+              title={lang === 'uk' ? 'Натисніть у черзі для режиму розробника' : 'Click in sequence for developer mode'}
+            >
               <div className="text-sm sm:text-xl shrink-0 flex items-center">🛡️</div>
               <div className="text-left flex flex-col justify-center">
                 <span className="font-pixel text-[6px] sm:text-[8px] text-[#8b8b8b] uppercase block leading-none mb-0.5">{t[lang].gearLevel}</span>
@@ -1552,7 +1960,11 @@ export default function App() {
             </div>
 
             {/* Streak module indicators */}
-            <div className="pixel-border bg-[#1e1e1e] p-1 px-2 text-center rounded-none flex items-center justify-center gap-1.5 sm:gap-3 h-10 sm:h-12 min-w-[70px] xs:min-w-[85px] sm:min-w-[120px] box-border">
+            <div 
+              onClick={() => handleStatPanelClick('streak')}
+              className="pixel-border bg-[#1e1e1e] hover:bg-neutral-800 cursor-pointer transition-colors p-1 px-2 text-center rounded-none flex items-center justify-center gap-1.5 sm:gap-3 h-10 sm:h-12 min-w-[70px] xs:min-w-[85px] sm:min-w-[120px] box-border"
+              title={lang === 'uk' ? 'Натисніть у черзі для режиму розробника' : 'Click in sequence for developer mode'}
+            >
               <div className="text-[#ff5555] shrink-0 flex items-center">
                 {streak >= 50 ? <CreeperStreakIcon size={1.5} className="animate-pulse" /> : <Flame size={14} className="animate-pulse sm:w-[18px]" />}
               </div>
@@ -1571,7 +1983,11 @@ export default function App() {
             </div>
 
             {/* Trophy / High Streak block */}
-            <div className="pixel-border bg-[#1e1e1e] p-1 px-2 text-center rounded-none flex items-center justify-center gap-1.5 sm:gap-3 h-10 sm:h-12 min-w-[70px] xs:min-w-[85px] sm:min-w-[120px] box-border">
+            <div 
+              onClick={() => handleStatPanelClick('record')}
+              className="pixel-border bg-[#1e1e1e] hover:bg-neutral-800 cursor-pointer transition-colors p-1 px-2 text-center rounded-none flex items-center justify-center gap-1.5 sm:gap-3 h-10 sm:h-12 min-w-[70px] xs:min-w-[85px] sm:min-w-[120px] box-border"
+              title={lang === 'uk' ? 'Натисніть у черзі для режиму розробника' : 'Click in sequence for developer mode'}
+            >
               <div className="text-yellow-400 shrink-0 flex items-center"><Trophy size={14} className="text-yellow-400 animate-bounce sm:w-[18px]" /></div>
               <div className="text-left flex flex-col justify-center">
                 <span className="font-pixel text-[6px] sm:text-[8px] text-[#8b8b8b] uppercase block leading-none mb-0.5">{t[lang].maxRecord}</span>
@@ -1621,7 +2037,7 @@ export default function App() {
       </section>
 
       {/* Content Area */}
-      <main className="flex-grow max-w-xl w-full mx-auto p-2 sm:p-4 md:py-6 flex flex-col justify-center gap-2 sm:gap-4">
+      <main className="flex-grow max-w-xl w-full mx-auto p-2 sm:p-4 md:py-6 flex flex-col justify-center gap-2 sm:gap-4 overflow-x-hidden">
         
         {/* Center Sandbox Mine Site Grid */}
         <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 md:p-8 relative min-h-[220px] xs:min-h-[280px] sm:min-h-[350px]">
@@ -1635,9 +2051,11 @@ export default function App() {
                   </div>
                 )}
 
-                 {/* The main epic Ore block container */}
-                 <div
-                   className={`relative w-52 h-52 xs:w-64 xs:h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 cursor-pointer select-none flex flex-col items-center justify-center transition-all duration-150
+                 {/* Independent container wrapper for block and its floating pickaxe */}
+                 <div className="relative w-52 h-52 xs:w-64 xs:h-64 sm:w-80 sm:h-80 md:w-96 md:h-96">
+                   {/* The main epic Ore block container */}
+                   <div
+                     className={`w-full h-full cursor-pointer select-none flex flex-col items-center justify-center transition-all duration-150
                      ${isNewQuestionEntry ? 'animate-drop' : ''} 
                      ${shakeBlock ? 'animate-shake' : ''} 
                      ${answeredCorrectly ? 'animate-crack' : ''}
@@ -1646,27 +2064,46 @@ export default function App() {
                      // Clicking the block lets you see particles / makes satisfying click sound!
                      if (answeredCorrectly) return;
                      playSoundEffect('mine');
-                     spawnMineParticles(e.clientX, e.clientY, currentOre ? currentOre.particle : '⚡');
+                     spawnMineParticles(e.clientX, e.clientY, '■', currentOre ? currentOre.themeColor : '#3fc1c9', true, false, currentOre ? currentOre.sparkleColor : '#55ffff');
                    }}
                    title={t[lang].crackMineralTitle}
                  >
                    
                    {/* Isometric 3D Canvas Ore Block */}
-                   <OreBlock 
-                     oreColor={currentOre ? currentOre.themeColor : '#3fc1c9'}
-                     isNether={netherEntered}
-                     oreType={currentOre ? currentOre.oreType : "diamond"}
-                      answeredCorrectly={answeredCorrectly}
-                   />
+                   {netherEntered ? (
+                     <CreeperNPC 
+                       size={creeperSize}
+                       isPrimed={creeperPrimed}
+                       className="mx-auto"
+                     />
+                   ) : (
+                     <OreBlock 
+                       oreColor={currentOre ? currentOre.themeColor : '#3fc1c9'}
+                       isNether={netherEntered}
+                       oreType={currentOre ? currentOre.oreType : "diamond"}
+                       answeredCorrectly={answeredCorrectly}
+                     />
+                   )}
 
 
 
 
                    {/* Mathematical Factor text (repositioned higher and enlarged as requested) */}
-                   {currentOre && (
-                     <span className="absolute -top-8 xs:-top-11 sm:-top-14 md:-top-16 font-pixel text-[8px] xs:text-[10px] sm:text-xs md:text-sm text-stone-100 tracking-wide uppercase text-shadow-streak select-none z-10 font-bold text-center px-1">
-                       {currentOre.name}
-                     </span>
+                   {netherEntered ? (
+                     <div className="absolute -top-8 xs:-top-11 sm:-top-14 md:-top-16 flex items-center gap-1.5 sm:gap-2 font-pixel text-[10px] xs:text-xs sm:text-sm md:text-base tracking-wide uppercase text-shadow-streak select-none z-10 font-bold text-center px-3 py-1 bg-black/75 border-2 border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]">
+                       <span className={creeperTimeLeft < 3000 ? "animate-ping text-red-500" : "text-yellow-500 animate-bounce"}>
+                         {creeperTimeLeft < 3000 ? '💥' : '💣'}
+                       </span>
+                       <span className={creeperTimeLeft < 3000 ? "text-red-500 animate-pulse font-black" : "text-red-400"}>
+                         {lang === 'uk' ? 'ЧАС:' : 'TIME:'} {(creeperTimeLeft / 1000).toFixed(1)}s
+                       </span>
+                     </div>
+                   ) : (
+                     currentOre && (
+                       <span className="absolute -top-8 xs:-top-11 sm:-top-14 md:-top-16 font-pixel text-[8px] xs:text-[10px] sm:text-xs md:text-sm text-stone-100 tracking-wide uppercase text-shadow-streak select-none z-10 font-bold text-center px-1">
+                         {currentOre.name}
+                       </span>
+                     )
                    )}
 
                    <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-center select-none pointer-events-none">
@@ -1674,6 +2111,28 @@ export default function App() {
                        {currentQuestion.factor1Num} × {currentQuestion.factor2Num}
                      </p>
                    </div>
+                 </div>
+
+                 {/* Default Handheld Pickaxe always floating to the right of the cube/block - INDEPENDENT of the block's animations */}
+                 {(() => {
+                     const tool = getActiveTool(currentLevel, true);
+                     const isSwinging = pickaxeStrike !== null;
+                     return (
+                       <div
+                         className={`absolute right-[-48px] xs:right-[-64px] sm:right-[-80px] md:right-[-96px] top-[40%] select-none pointer-events-none z-30 ${
+                           isSwinging ? 'animate-pickaxe-strike' : 'animate-pickaxe-idle'
+                         }`}
+                       >
+                         <PixelPickaxe
+                           colorH={tool.colorH}
+                           colorD={tool.colorD}
+                           colorL={tool.colorL}
+                           size={56}
+                           className="drop-shadow-[0_8px_10px_rgba(0,0,0,0.65)]"
+                         />
+                       </div>
+                     );
+                   })()}
                  </div>
 
                 {/* Answer chest selectors array */}
@@ -1684,40 +2143,62 @@ export default function App() {
                       const isSuccess = answeredCorrectly && option === currentQuestion.answer;
                       
                       return (
-                        <button
-                          key={idx}
-                          id={`option-btn-${idx}`}
-                          onClick={(e) => handleInteraction(option, idx, e)}
-                          disabled={answeredCorrectly || isFailed}
-                          className={`relative py-2 sm:py-4 md:py-6 rounded-none cursor-pointer min-h-[55px] xs:min-h-[65px] sm:min-h-[85px] md:min-h-[100px] select-none flex flex-col items-center justify-center font-pixel outline-none transition-all duration-100 pixel-border text-shadow-stat
-                            ${isFailed 
-                              ? 'bg-red-950/50 text-stone-500 border-red-900 scale-95 opacity-50 cursor-not-allowed line-through' 
-                              : isSuccess
-                              ? 'bg-[#557a55] text-white scale-105'
-                              : 'bg-[#8b4513] hover:bg-[#a0522d] text-white active:scale-95'
-                            }
-                          `}
-                        >
-                          <div className="flex items-center justify-center">
-                            {/* Option value text */}
-                            <span className="text-base xs:text-lg sm:text-2xl md:text-4xl font-black tracking-tight text-white">
-                              {option}
-                            </span>
-                          </div>
-
-                          {/* Chest lock icon design style */}
-                          {!isFailed && !isSuccess && (
-                            <div className="w-2.5 h-2.5 xs:w-3.5 xs:h-3.5 bg-yellow-600 border border-black mt-1.5 rounded-sm relative flex items-center justify-center shrink-0">
-                              <div className="w-1 h-1 xs:w-1.5 xs:h-1.5 bg-black rounded-full" />
+                        <div key={idx} className="relative">
+                          {/* TNT 3-second countdown timer above the incorrect chest */}
+                          {tntTimers[idx] !== undefined && (
+                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-black border-2 border-red-500 px-2.5 py-1 text-white font-pixel text-[11px] xs:text-[13px] sm:text-base whitespace-nowrap z-20 shadow-[0_3px_8px_rgba(0,0,0,0.6)] animate-bounce flex items-center justify-center select-none rounded">
+                              <span className="text-red-400 font-bold" style={{ textShadow: 'none' }}>{tntTimers[idx].toFixed(1)}s</span>
                             </div>
                           )}
-                          {isSuccess && (
-                            <span className="text-[7px] xs:text-[8px] sm:text-[10px] text-green-300 font-bold block uppercase mt-1 sm:mt-2">{t[lang].claimed}</span>
-                          )}
-                          {isFailed && (
-                            <span className="text-[7px] xs:text-[8px] sm:text-[10px] text-red-400 font-bold block uppercase mt-1 sm:mt-2">{t[lang].tntBoom}</span>
-                          )}
-                        </button>
+
+                          <button
+                            id={`option-btn-${idx}`}
+                            onClick={(e) => handleInteraction(option, idx, e)}
+                            disabled={answeredCorrectly || isFailed}
+                            className={`relative w-full py-2 sm:py-4 md:py-6 rounded-none cursor-pointer min-h-[55px] xs:min-h-[65px] sm:min-h-[85px] md:min-h-[100px] select-none flex flex-col items-center justify-center font-pixel outline-none transition-all duration-100 pixel-border text-shadow-stat
+                              ${isFailed 
+                                ? 'bg-red-950/50 text-stone-500 border-red-900 scale-95 opacity-50 cursor-not-allowed line-through' 
+                                : isSuccess
+                                ? 'bg-[#557a55] text-white scale-105'
+                                : 'bg-[#8b4513] hover:bg-[#a0522d] text-white active:scale-95'
+                              }
+                            `}
+                          >
+                            {!isFailed && (
+                              <div className="flex items-center justify-center">
+                                {/* Option value text */}
+                                <span className="text-base xs:text-lg sm:text-2xl md:text-4xl font-black tracking-tight text-white">
+                                  {option}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Chest lock icon design style */}
+                            {!isFailed && !isSuccess && (
+                              <div className="w-2.5 h-2.5 xs:w-3.5 xs:h-3.5 bg-yellow-600 border border-black mt-1.5 rounded-sm relative flex items-center justify-center shrink-0">
+                                <div className="w-1 h-1 xs:w-1.5 xs:h-1.5 bg-black rounded-full" />
+                              </div>
+                            )}
+                            {isSuccess && (
+                              <span className="text-[7px] xs:text-[8px] sm:text-[10px] text-green-300 font-bold block uppercase mt-1 sm:mt-2">{t[lang].claimed}</span>
+                            )}
+                            
+                            {/* Minecraft-style authentic TNT block overlay for incorrect answer */}
+                            {isFailed && (
+                              <div className="absolute inset-0 bg-[#db2f2f] flex flex-col items-center justify-center border-4 border-black select-none z-10 animate-pulse" style={{ textShadow: 'none' }}>
+                                {/* Dark red top/bottom highlight strips */}
+                                <div className="w-full h-1.5 sm:h-2 bg-[#b22222] border-b-2 border-black absolute top-0" />
+                                
+                                {/* Central white stripe with "TNT" in bold pixelated style */}
+                                <div className="w-full bg-white border-y-2 border-black py-1 text-black font-pixel text-sm xs:text-base sm:text-2xl md:text-4xl font-black tracking-widest flex items-center justify-center" style={{ textShadow: 'none' }}>
+                                  <span style={{ textShadow: 'none' }}>TNT</span>
+                                </div>
+
+                                <div className="w-full h-1.5 sm:h-2 bg-[#b22222] border-t-2 border-black absolute bottom-0" />
+                              </div>
+                            )}
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -2106,7 +2587,20 @@ export default function App() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 animate-fade-in">
           <div className="relative w-full max-w-sm p-6 pixel-stone pixel-border border-b-8 border-r-8 text-center flex flex-col animate-drop">
             
-            <div className="text-4xl mb-2 select-none animate-bounce">⛏️</div>
+            {(() => {
+              const tool = getActiveTool(currentLevel, true);
+              return (
+                <div className="mb-2 flex justify-center select-none animate-bounce">
+                  <PixelPickaxe
+                    colorH={tool.colorH}
+                    colorD={tool.colorD}
+                    colorL={tool.colorL}
+                    size={48}
+                    className="drop-shadow-[0_4px_6px_rgba(0,0,0,0.6)]"
+                  />
+                </div>
+              );
+            })()}
             
             <h2 className="font-pixel text-yellow-400 text-xs sm:text-sm uppercase tracking-wider mb-4 drop-shadow-[0_2px_0_rgba(0,0,0,1)]">
               {t[lang].choosePickaxe}
