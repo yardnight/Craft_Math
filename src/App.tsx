@@ -1407,6 +1407,55 @@ export default function App() {
     });
   };
 
+  const touchStartY = useRef<number | null>(null);
+  const dragStartY = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length > 0) {
+      touchStartY.current = e.touches[0].clientY;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (touchStartY.current === null || e.touches.length === 0) return;
+    const currentY = e.touches[0].clientY;
+    const deltaY = touchStartY.current - currentY;
+    if (Math.abs(deltaY) > 20) {
+      if (deltaY > 0) {
+        setTempLevel(prev => Math.min(35, prev + 1));
+      } else {
+        setTempLevel(prev => Math.max(0, prev - 1));
+      }
+      touchStartY.current = currentY;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchStartY.current = null;
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    dragStartY.current = e.clientY;
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (dragStartY.current === null) return;
+    const currentY = e.clientY;
+    const deltaY = dragStartY.current - currentY;
+    if (Math.abs(deltaY) > 20) {
+      if (deltaY > 0) {
+        setTempLevel(prev => Math.min(35, prev + 1));
+      } else {
+        setTempLevel(prev => Math.max(0, prev - 1));
+      }
+      dragStartY.current = currentY;
+    }
+  };
+
+  const handleMouseUpOrLeave = () => {
+    dragStartY.current = null;
+  };
+
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (e.deltaY > 0) {
@@ -1417,19 +1466,6 @@ export default function App() {
   };
 
   const wheelContainerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (showDevModeModal && wheelContainerRef.current) {
-      const activeEl = wheelContainerRef.current.querySelector(`[data-level="${tempLevel}"]`);
-      if (activeEl) {
-        activeEl.scrollIntoView({
-          behavior: 'auto',
-          block: 'center',
-          inline: 'nearest'
-        });
-      }
-    }
-  }, [tempLevel, showDevModeModal]);
 
   // Main interactive event click controller
   const handleInteraction = (optionValue: number, optionIdx: number, event: React.MouseEvent<HTMLButtonElement>) => {
@@ -1798,55 +1834,69 @@ export default function App() {
               <div 
                 ref={wheelContainerRef}
                 onWheel={handleWheel}
-                className="w-32 h-40 bg-black border-4 border-zinc-900 rounded-none overflow-y-scroll relative flex flex-col py-12 scroll-smooth scrollbar-none snap-y snap-mandatory select-none"
-                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUpOrLeave}
+                onMouseLeave={handleMouseUpOrLeave}
+                className="w-32 h-40 bg-black border-4 border-zinc-900 rounded-none overflow-hidden relative select-none cursor-grab active:cursor-grabbing"
               >
                 {/* Center target indicator lens */}
                 <div className="absolute left-0 right-0 top-[calc(50%-18px)] h-9 border-t-2 border-b-2 border-yellow-500/40 bg-yellow-500/5 pointer-events-none z-10" />
                 
-                {Array.from({ length: 36 }, (_, i) => i).map((lvl) => {
-                  const isSelected = lvl === tempLevel;
-                  const diff = Math.abs(lvl - tempLevel);
-                  
-                  let opacity = 1;
-                  let scale = 1.15;
-                  let colorClass = "text-yellow-400 font-bold";
+                {/* Inner Translated Container */}
+                <div 
+                  className="absolute left-0 right-0 transition-transform duration-200 ease-out flex flex-col items-center"
+                  style={{
+                    transform: `translateY(${62 - tempLevel * 36}px)`,
+                  }}
+                >
+                  {Array.from({ length: 36 }, (_, i) => i).map((lvl) => {
+                    const isSelected = lvl === tempLevel;
+                    const diff = Math.abs(lvl - tempLevel);
+                    
+                    let opacity = 1;
+                    let scale = 1.15;
+                    let colorClass = "text-yellow-400 font-bold";
 
-                  if (diff === 0) {
-                    opacity = 1;
-                    scale = 1.3;
-                    colorClass = "text-[#55ff55] font-black text-shadow-streak text-lg";
-                  } else if (diff === 1) {
-                    opacity = 0.6;
-                    scale = 0.95;
-                    colorClass = "text-stone-300";
-                  } else if (diff === 2) {
-                    opacity = 0.3;
-                    scale = 0.75;
-                    colorClass = "text-stone-500";
-                  } else {
-                    opacity = 0.1;
-                    scale = 0.55;
-                    colorClass = "text-stone-700";
-                  }
+                    if (diff === 0) {
+                      opacity = 1;
+                      scale = 1.3;
+                      colorClass = "text-[#55ff55] font-black text-shadow-streak text-lg";
+                    } else if (diff === 1) {
+                      opacity = 0.6;
+                      scale = 0.95;
+                      colorClass = "text-stone-300";
+                    } else if (diff === 2) {
+                      opacity = 0.3;
+                      scale = 0.75;
+                      colorClass = "text-stone-500";
+                    } else {
+                      opacity = 0.1;
+                      scale = 0.55;
+                      colorClass = "text-stone-700";
+                    }
 
-                  return (
-                    <div
-                      key={lvl}
-                      data-level={lvl}
-                      onClick={() => setTempLevel(lvl)}
-                      className={`h-9 flex items-center justify-center shrink-0 cursor-pointer transition-all duration-150 snap-center font-mono`}
-                      style={{
-                        opacity,
-                        transform: `scale(${scale})`,
-                      }}
-                    >
-                      <span className={`${colorClass} select-none`}>
-                        LVL {lvl}
-                      </span>
-                    </div>
-                  );
-                })}
+                    return (
+                      <div
+                        key={lvl}
+                        data-level={lvl}
+                        onClick={() => setTempLevel(lvl)}
+                        className={`h-9 flex items-center justify-center shrink-0 cursor-pointer transition-all duration-150 font-mono`}
+                        style={{
+                          opacity,
+                          transform: `scale(${scale})`,
+                        }}
+                      >
+                        <span className={`${colorClass} select-none`}>
+                          LVL {lvl}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Arrow Down button */}
